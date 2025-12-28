@@ -1,4 +1,5 @@
-stages: [deploy]
+stages:
+  - deploy
 
 deploy_minikube:
   stage: deploy
@@ -11,25 +12,26 @@ deploy_minikube:
     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
+
   script:
-    # Проверка кластера
     - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl get nodes -o wide"
-
-    # Копируем манифесты на Minikube VM
     - scp -i ~/.ssh/id_ed25519 -r k8s "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s"
+    - |
+      ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
+        set -e
 
-    # Применяем всё разом (namespace + deploy + svc)
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s"
+        kubectl apply -f /tmp/k8s
 
-    # Перезапускаем деплой, чтобы гарантированно пересоздались pod'ы
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo rollout restart deployment/web"
+        # гарантированно пересоздаём pod (на случай изменений)
+        kubectl -n demo rollout restart deployment/web
 
-    # Ждём готовности
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo rollout status deployment/web --timeout=120s"
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo wait --for=condition=Ready pod -l app=web --timeout=120s"
+        # ждём готовности
+        kubectl -n demo rollout status deployment/web --timeout=180s
+        kubectl -n demo wait --for=condition=Ready pod -l app=web --timeout=180s
 
-    # Итоговый статус
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo get deploy,svc,pods -o wide"
+        # итог
+        kubectl -n demo get deploy,svc,pods -o wide
 
-    # Печатаем удобную подсказку, как открыть nginx (если NodePort=30080)
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "echo 'Open: http://$MINIKUBE_HOST:30080' && kubectl -n demo get svc web -o jsonpath='{.spec.type} {.spec.ports[0].nodePort}{\"\\n\"}'"
+        # подсказка как открыть (если NodePort=30080)
+        echo Open: http://192.168.0.117:30080
+      "'
