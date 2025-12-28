@@ -12,10 +12,24 @@ deploy_minikube:
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
   script:
+    # Проверка кластера
     - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl get nodes -o wide"
+
+    # Копируем манифесты на Minikube VM
     - scp -i ~/.ssh/id_ed25519 -r k8s "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s"
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/namespace.yaml"
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/deploy.yaml"
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/svc.yaml"
+
+    # Применяем всё разом (namespace + deploy + svc)
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s"
+
+    # Перезапускаем деплой, чтобы гарантированно пересоздались pod'ы
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo rollout restart deployment/web"
+
+    # Ждём готовности
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo rollout status deployment/web --timeout=120s"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo wait --for=condition=Ready pod -l app=web --timeout=120s"
+
+    # Итоговый статус
     - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo get deploy,svc,pods -o wide"
 
+    # Печатаем удобную подсказку, как открыть nginx (если NodePort=30080)
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "echo 'Open: http://$MINIKUBE_HOST:30080' && kubectl -n demo get svc web -o jsonpath='{.spec.type} {.spec.ports[0].nodePort}{\"\\n\"}'"
