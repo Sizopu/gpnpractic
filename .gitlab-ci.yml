@@ -1,0 +1,5 @@
+test:
+  image: alpine:latest
+  script:
+    - echo "Runner works!"
+    - uname -a
