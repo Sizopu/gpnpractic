@@ -12,9 +12,9 @@ deploy_minikube:
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
   script:
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl get nodes"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "minikube kubectl get nodes"
     - scp -i ~/.ssh/id_ed25519 -r k8s "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s"
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/namespace.yaml"
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/deploy.yaml"
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/svc.yaml"
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo get deploy,svc,pods -o wide"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "minikube kubectl apply -f /tmp/k8s/namespace.yaml"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "minikube kubectl apply -f /tmp/k8s/deploy.yaml"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "minikube kubectl apply -f /tmp/k8s/svc.yaml"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "minikube kubectl -n demo get deploy,svc,pods -o wide"
