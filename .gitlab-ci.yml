@@ -6,6 +6,7 @@ deploy_minikube:
   image: alpine:latest
   tags:
     - docker-runner
+
   before_script:
     - apk add --no-cache openssh-client
     - mkdir -p ~/.ssh
@@ -14,24 +15,34 @@ deploy_minikube:
     - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
 
   script:
+    # Проверка кластера
     - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl get nodes -o wide"
-    - scp -i ~/.ssh/id_ed25519 -r k8s "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s"
+
+    # Очистить старые манифесты на Minikube VM
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "rm -rf /tmp/k8s && mkdir -p /tmp/k8s"
+
+    # Скопировать свежие манифесты (в пустую папку)
+    - scp -i ~/.ssh/id_ed25519 -r k8s/* "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s/"
+
+    # Деплой + рестарт + ожидание
     - |
       ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
         set -e
 
-        kubectl apply -f /tmp/k8s
+        echo --- /tmp/k8s/svc.yaml ---
+        cat /tmp/k8s/svc.yaml
 
-        # гарантированно пересоздаём pod (на случай изменений)
+        kubectl apply -f /tmp/k8s/namespace.yaml
+        kubectl apply -f /tmp/k8s/deploy.yaml
+
+        # сервис пересоздаём, чтобы гарантированно обновился тип (NodePort vs ClusterIP)
+        kubectl -n demo delete svc web --ignore-not-found
+        kubectl apply -f /tmp/k8s/svc.yaml
+
         kubectl -n demo rollout restart deployment/web
-
-        # ждём готовности
         kubectl -n demo rollout status deployment/web --timeout=180s
         kubectl -n demo wait --for=condition=Ready pod -l app=web --timeout=180s
 
-        # итог
         kubectl -n demo get deploy,svc,pods -o wide
-
-        # подсказка как открыть (если NodePort=30080)
-        echo Open: http://192.168.0.117:30080
+        echo Open: http://$MINIKUBE_HOST:30080
       "'
