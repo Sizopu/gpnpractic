@@ -8,41 +8,49 @@ deploy_minikube:
     - docker-runner
 
   before_script:
-    - apk add --no-cache openssh-client
+    - apk add --no-cache openssh-client bash
     - mkdir -p ~/.ssh
     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
 
   script:
-    # Проверка кластера
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl get nodes -o wide"
-
-    # Очистить старые манифесты на Minikube VM
-    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "rm -rf /tmp/k8s && mkdir -p /tmp/k8s"
-
-    # Скопировать свежие манифесты (в пустую папку)
-    - scp -i ~/.ssh/id_ed25519 -r k8s/* "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s/"
-
-    # Деплой + рестарт + ожидание
     - |
       ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
         set -e
 
-        echo --- /tmp/k8s/svc.yaml ---
-        cat /tmp/k8s/svc.yaml
+        echo \"== Cluster ==\"
+        kubectl get nodes -o wide
 
-        kubectl apply -f /tmp/k8s/namespace.yaml
-        kubectl apply -f /tmp/k8s/deploy.yaml
+        echo \"== Copy manifests ==\"
+        rm -rf /tmp/k8s
+        mkdir -p /tmp/k8s
+      "'
 
-        # сервис пересоздаём, чтобы гарантированно обновился тип (NodePort vs ClusterIP)
+    - scp -i ~/.ssh/id_ed25519 -r k8s/* "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s/"
+
+    - |
+      ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
+        set -e
+
+        echo \"== Ensure namespace ==\"
+        kubectl get ns demo >/dev/null 2>&1 || kubectl create ns demo
+
+        echo \"== Clean old resources ==\"
+        kubectl -n demo delete deploy web --ignore-not-found
         kubectl -n demo delete svc web --ignore-not-found
-        kubectl apply -f /tmp/k8s/svc.yaml
+        kubectl -n demo delete pods -l app=web --ignore-not-found
 
-        kubectl -n demo rollout restart deployment/web
-        kubectl -n demo rollout status deployment/web --timeout=180s
+        echo \"== Apply new manifests ==\"
+        kubectl apply -f /tmp/k8s
+
+        echo \"== Wait for rollout ==\"
+        kubectl -n demo rollout status deploy/web --timeout=180s
         kubectl -n demo wait --for=condition=Ready pod -l app=web --timeout=180s
 
+        echo \"== Result ==\"
         kubectl -n demo get deploy,svc,pods -o wide
-        echo Open: http://$MINIKUBE_HOST:30080
+
+        echo \"== Open ==\"
+        echo http://192.168.49.2:30080
       "'
