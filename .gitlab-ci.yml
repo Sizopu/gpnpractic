@@ -1,5 +1,7 @@
 test:
   image: alpine:latest
+  tags:
+    - docker-runner
   script:
     - echo "Runner works!"
     - uname -a
