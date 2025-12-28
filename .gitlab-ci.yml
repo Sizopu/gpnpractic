@@ -1,7 +1,20 @@
-test:
+stages: [deploy]
+
+deploy_minikube:
+  stage: deploy
   image: alpine:latest
   tags:
     - docker-runner
+  before_script:
+    - apk add --no-cache openssh-client
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
   script:
-    - echo "Runner works!"
-    - uname -a
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl get nodes"
+    - scp -i ~/.ssh/id_ed25519 -r k8s "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/namespace.yaml"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/deploy.yaml"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl apply -f /tmp/k8s/svc.yaml"
+    - ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" "kubectl -n demo get deploy,svc,pods -o wide"
