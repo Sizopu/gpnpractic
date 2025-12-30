@@ -1,0 +1,85 @@
+{
+    "exchanges": [
+        {
+            "name": "First.exchange",
+            "vhost": "/",
+            "type": "direct",
+            "durable": true,
+            "auto_delete": false,
+            "internal": false,
+            "arguments": {}
+        }
+    ],
+    "queues": [
+        {
+            "name": "book_generation_queue",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {}
+        },
+        {
+            "name": "image_generation_queue",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {}
+        },
+        {
+            "name": "large_book_generation_queue",
+            "vhost": "/",
+            "durable": true,
+            "auto_delete": false,
+            "arguments": {}
+        }
+    ],
+    "users": [
+        {
+            "name": "${RABBITMQ_ADM_LOGIN}",
+            "password": "${RABBITMQ_ADM_PASSWORD}",
+            "tags": "administrator"
+        },
+        {
+            "name": "${RABBITMQ_SENDER_LOGIN}",
+            "password": "${RABBITMQ_SENDER_PASSWORD}",
+            "tags": "rmq_sender"
+        },
+        {
+            "name": "${RABBITMQ_RECIPIENT_LOGIN}",
+            "password": "${RABBITMQ_RECIPIENT_PASSWORD}",
+            "tags": "rmq_recipient"
+        }
+    ],
+    "vhosts": [
+        {
+            "name": "/"
+        }
+    ],
+    "permissions": [
+        {
+            "user": "${RABBITMQ_ADM_LOGIN}",
+            "vhost": "/",
+            "configure": ".*",
+            "write": ".*",
+            "read": ".*"
+        },
+        {
+            "user": "${RABBITMQ_SENDER_LOGIN}",
+            "vhost": "/",
+            "configure": "^(book_generation_queue|image_generation_queue|large_book_generation_queue)$",
+            "write": ".*",
+            "read": ""
+        },
+        {
+            "user": "${RABBITMQ_RECIPIENT_LOGIN}",
+            "vhost": "/",
+            "configure": "^(book_generation_queue|image_generation_queue|large_book_generation_queue)$",
+            "write": "",
+            "read": ".*"
+        }
+    ],
+    "topic_permissions": [],
+    "parameters": [],
+    "global_parameters": [],
+    "policies": []
+}

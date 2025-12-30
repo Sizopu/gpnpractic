@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Sandbox-Observability</title>
+  <script src="/metrics/js/chart.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .container {
+      display: flex;
+      width: 100%;
+      gap: 20px;
+    }
+    .dashboard {
+      width: 60%;
+    }
+    .uptime-panel {
+      width: 30%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    .status {
+      width: 30%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .status-item {
+      padding: 10px;
+      border-radius: 5px;
+      color: white;
+    }
+    .up {
+      background-color: green;
+    }
+    .down {
+      background-color: red;
+    }
+    .uptime-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+      text-align: center;
+    }
+    .quotes-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    .quotes-table th, .quotes-table td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    .quotes-table th {
+      background-color: #f2f2f2;
+    }
+  </style>
+</head>
+<body>
+  <h1>Sandbox-Observability</h1>
+  <div class="container">
+    <div class="dashboard">
+      <canvas id="metricsChart" width="400" height="200"></canvas>
+    </div>
+    <div class="uptime-panel">
+      <h3>Время работы</h3>
+      <div class="uptime-value" id="uptimeValue">--</div>
+    </div>
+    <div class="status" id="statusPanel">
+    </div>
+  </div>
+
+  <h2>Выгрузка из PostgreSQL</h2>
+  <table class="quotes-table">
+    <thead>
+      <tr>
+        <th>Актуальные цитаты sandbox-проекта:</th>
+      </tr>
+    </thead>
+    <tbody id="quotesBody">
+    </tbody>
+  </table>
+
+  <script>
+    const ctx = document.getElementById('metricsChart').getContext('2d');
+    let lastRandomValue = 50;
+
+    const chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'Загрузка ЦПУ %',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            data: [],
+            fill: false
+          },
+          {
+            label: 'Загрузка ОЗУ (MB)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            data: [],
+            fill: false
+          },
+          {
+            label: 'Текущее кол-во пользователей',
+            borderColor: 'rgba(153, 102, 255, 1)',
+            data: [],
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: {
+            beginAtZero: true,
+            max: 2000
+          }
+        }
+      }
+    });
+
+    let labelIndex = 0;
+
+    async function updateChart() {
+      try {
+        const res = await fetch('/api/metrics');
+        const data = await res.json();
+
+        chart.data.labels.push(labelIndex++);
+
+        chart.data.datasets[0].data.push(data.cpu_usage_percent);
+        chart.data.datasets[1].data.push(data.memory_used_bytes / 1024 / 1024);
+
+        const change = (Math.random() - 0.5) * 400;
+        lastRandomValue += change;
+        if (lastRandomValue > 2000) lastRandomValue = 2000;
+        if (lastRandomValue < 0) lastRandomValue = 0;
+        chart.data.datasets[2].data.push(lastRandomValue);
+
+        if (chart.data.labels.length > 20) {
+          chart.data.labels.shift();
+          chart.data.datasets.forEach(dataset => {
+            dataset.data.shift();
+          });
+        }
+
+        chart.update();
+      } catch (err) {
+        console.error('Failed to fetch metrics');
+      }
+    }
+
+    async function updateUptime() {
+      try {
+        const res = await fetch('/api/metrics');
+        const data = await res.json();
+        const uptimeValue = document.getElementById('uptimeValue');
+        uptimeValue.textContent = data.uptime_seconds.toFixed(2) + ' сек';
+      } catch (err) {
+        console.error('Failed to fetch uptime');
+      }
+    }
+
+    async function updateStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const status = await res.json();
+        const panel = document.getElementById('statusPanel');
+        panel.innerHTML = '';
+
+        for (const [name, isUp] of Object.entries(status)) {
+          const div = document.createElement('div');
+          div.className = `status-item ${isUp ? 'up' : 'down'}`;
+          div.textContent = `${name}: ${isUp ? 'UP' : 'DOWN'}`;
+          panel.appendChild(div);
+        }
+      } catch (err) {
+        console.error('Failed to fetch status');
+      }
+    }
+
+    async function updateQuotes() {
+      try {
+        const res = await fetch('/api/quotes');
+        const quotes = await res.json();
+        const tbody = document.getElementById('quotesBody');
+        tbody.innerHTML = '';
+
+        quotes.forEach(quote => {
+          const tr = document.createElement('tr');
+          const td = document.createElement('td');
+          td.textContent = quote;
+          tr.appendChild(td);
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error('Failed to fetch quotes');
+      }
+    }
+
+    setInterval(updateChart, 2500);
+    setInterval(updateUptime, 2500);
+    setInterval(updateStatus, 5000);
+    setInterval(updateQuotes, 10000);
+  </script>
+</body>
+</html>

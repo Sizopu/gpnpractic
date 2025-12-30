@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "quotation-book"
+version = "0.0.1"
+description = "Sandbox-project"
+authors = ["GPN <sarasek.ss@gazprom-neft.ru>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+Flask = "3.1.1"
+psycopg2 = "^2.9.10"
+setuptools = ">=40.8.0"
+markupsafe = "2.1.2"
+redis = "^5.0.0"
+requests = "2.32.4"
+pillow = "11.3.0"
+boto3 = "1.40.9"
+reportlab = "4.4.3"
+PyPDF2 = "3.0.1"
+pika = "1.3.2"
+uuid = "1.30"
+pytest = "8.4.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
