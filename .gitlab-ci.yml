@@ -30,21 +30,13 @@ deploy_minikube_helm:
 
     - |
       if [ "$TLS_CREATE" = "true" ]; then
-        CERT_SRC=""
-        KEY_SRC=""
-        CA_SRC=""
-
-        if [ -f "./ci/ssl/certs/certificate.crt" ]; then CERT_SRC="./ci/ssl/certs/certificate.crt"; fi
-        if [ -f "./ci/ssl/certs/private.key" ]; then KEY_SRC="./ci/ssl/certs/private.key"; fi
-        if [ -f "./ci/certs/sandbox_ca_root.crt" ]; then CA_SRC="./ci/certs/sandbox_ca_root.crt"; fi
-
-        if [ -z "$CERT_SRC" ] && [ -f "./ci/local/ssl/certificate.crt" ]; then CERT_SRC="./ci/local/ssl/certificate.crt"; fi
-        if [ -z "$KEY_SRC" ]  && [ -f "./ci/local/ssl/private.key" ]; then KEY_SRC="./ci/local/ssl/private.key"; fi
-        if [ -z "$CA_SRC" ]   && [ -f "./ci/local/ssl/sandbox_ca_root.crt" ]; then CA_SRC="./ci/local/ssl/sandbox_ca_root.crt"; fi
+        CERT_SRC="$(find ./ci -type f -name 'certificate.crt' 2>/dev/null | head -n 1 || true)"
+        KEY_SRC="$(find ./ci -type f -name 'private.key' 2>/dev/null | head -n 1 || true)"
+        CA_SRC="$(find ./ci -type f -name 'sandbox_ca_root.crt' 2>/dev/null | head -n 1 || true)"
 
         if [ -z "$CERT_SRC" ] || [ -z "$KEY_SRC" ]; then
-          echo "TLS_CREATE=true but certificate/key not found"
-          find ./ci -maxdepth 4 -type f \( -name 'certificate.crt' -o -name 'private.key' -o -name 'sandbox_ca_root.crt' \) -print || true
+          echo "TLS_CREATE=true but certificate.crt/private.key not found in ./ci"
+          find ./ci -maxdepth 4 -type f -print 2>/dev/null || true
           exit 1
         fi
 
@@ -71,14 +63,10 @@ deploy_minikube_helm:
       elif [ -f "./ci/$VALUES_OVERLAY" ]; then
         cp "./ci/$VALUES_OVERLAY" /tmp/values-overlay.yaml
       else
-        CANDIDATE="$(ls -1 values-*.yaml 2>/dev/null | grep -v -E '^(values\.yaml|values-prod\.yaml)$' | head -n 1 || true)"
-        if [ -n "$CANDIDATE" ]; then
-          cp "$CANDIDATE" /tmp/values-overlay.yaml
-        else
-          echo "overlay not found: $VALUES_OVERLAY"
-          ls -la values*.yaml 2>/dev/null || true
-          exit 1
-        fi
+        echo "overlay not found: $VALUES_OVERLAY"
+        ls -la values*.yaml 2>/dev/null || true
+        find . -maxdepth 2 -type f -name 'values-*.yaml' -print 2>/dev/null || true
+        exit 1
       fi
 
     - |
