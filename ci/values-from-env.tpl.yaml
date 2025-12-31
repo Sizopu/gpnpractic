@@ -19,6 +19,8 @@ secrets:
     recipientPassword: "${RABBITMQ_RECIPIENT_PASSWORD}"
   minio:
     rootPassword: "${MINIO_ROOT_PASSWORD}"
+  pgadmin:
+    password: "${PGADMIN_PASSWORD}"
   backend:
     flaskSecretKey: "${FLASK_SECRET_KEY}"
     keycloakClientSecret: "${KEYCLOAK_CLIENT_SECRET}"
