@@ -1,0 +1,108 @@
+{{- if .Values.pgadmin.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.pgadmin.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: pgadmin
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.pgadmin.service.type }}
+  selector:
+    app.kubernetes.io/name: pgadmin
+    app.kubernetes.io/component: pgadmin
+  ports:
+    - name: http
+      port: {{ .Values.pgadmin.service.port }}
+      targetPort: http
+      {{- if eq .Values.pgadmin.service.type "NodePort" }}
+      nodePort: {{ .Values.pgadmin.service.nodePort }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.pgadmin.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: pgadmin
+    app.kubernetes.io/component: pgadmin
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Values.pgadmin.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgadmin
+      app.kubernetes.io/component: pgadmin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pgadmin
+        app.kubernetes.io/component: pgadmin
+        {{- include "qb.labels" . | nindent 8 }}
+    spec:
+      {{- include "qb.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        fsGroup: 10000
+      initContainers:
+        {{- include "qb.waitFor" (dict "name" "wait-postgres" "host" .Values.postgres.name "port" .Values.postgres.service.port "timeout" 240) | nindent 8 }}
+      containers:
+        - name: pgadmin
+          image: {{ include "qb.image" (dict "image" .Values.pgadmin.image "global" .Values.global) }}
+          imagePullPolicy: {{ include "qb.pullPolicy" (dict "image" .Values.pgadmin.image "global" .Values.global) }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: PGADMIN_DEFAULT_EMAIL
+              value: {{ .Values.pgadmin.env.email | quote }}
+            - name: PGADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: PGADMIN_PASSWORD
+                  optional: true
+            - name: PGADMIN_LISTEN_PORT
+              value: "80"
+
+          {{- with .Values.pgadmin.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /misc/ping
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /misc/ping
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgadmin
+  {{- if .Values.pgadmin.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.pgadmin.persistence.storageClass }}
+        storageClassName: {{ .Values.pgadmin.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.pgadmin.persistence.size | quote }}
+  {{- else }}
+  volumeClaimTemplates: []
+  {{- end }}
+{{- end }}

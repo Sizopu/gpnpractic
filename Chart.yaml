@@ -1,0 +1,6 @@
+apiVersion: v2
+name: quotation-book
+description: Quotation Book - umbrella chart for Postgres, Keycloak, Backend, Frontend, Redis, RabbitMQ, MinIO, pgAdmin and observability services.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

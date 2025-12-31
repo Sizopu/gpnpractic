@@ -1,56 +1,50 @@
 stages:
   - deploy
 
-deploy_minikube:
+deploy_minikube_helm:
   stage: deploy
   image: alpine:latest
   tags:
     - docker-runner
-
   before_script:
-    - apk add --no-cache openssh-client bash
+    - apk add --no-cache openssh-client bash gettext
     - mkdir -p ~/.ssh
     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
 
+    # restore .env from GitLab File var
+    - cp "$QB_ENV_FILE" .env
+    - set -a; . ./.env; set +a
+
+    # (optional) enable TLS secret rendering
+    - export TLS_ENABLED="${TLS_ENABLED:-false}"
+    - export TLS_CREATE="${TLS_CREATE:-false}"
+
+    # render values from env -> /tmp/values-ci.yaml
+    - chmod +x quotation-book/ci/render-values.sh
+    - quotation-book/ci/render-values.sh quotation-book/ci/values-from-env.tpl.yaml /tmp/values-ci.yaml
+
   script:
     - |
       ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
         set -e
-
-        echo \"== Cluster ==\"
         kubectl get nodes -o wide
-
-        echo \"== Copy manifests ==\"
-        rm -rf /tmp/k8s
-        mkdir -p /tmp/k8s
+        command -v helm >/dev/null 2>&1 || { echo \"helm not found on server\"; exit 1; }
+        kubectl get ns demo >/dev/null 2>&1 || kubectl create ns demo
+        rm -rf /tmp/qb-chart && mkdir -p /tmp/qb-chart
       "'
 
-    - scp -i ~/.ssh/id_ed25519 -r k8s/* "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/k8s/"
+    - scp -i ~/.ssh/id_ed25519 -r quotation-book "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-chart/"
+    - scp -i ~/.ssh/id_ed25519 /tmp/values-ci.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-values-ci.yaml"
 
     - |
       ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
         set -e
+        helm upgrade --install quotation-book /tmp/qb-chart/quotation-book \
+          -n demo \
+          -f /tmp/qb-values-ci.yaml \
+          -f /tmp/qb-chart/quotation-book/values-minikube.yaml
 
-        echo \"== Ensure namespace ==\"
-        kubectl get ns demo >/dev/null 2>&1 || kubectl create ns demo
-
-        echo \"== Clean old resources ==\"
-        kubectl -n demo delete deploy web --ignore-not-found
-        kubectl -n demo delete svc web --ignore-not-found
-        kubectl -n demo delete pods -l app=web --ignore-not-found
-
-        echo \"== Apply new manifests ==\"
-        kubectl apply -f /tmp/k8s
-
-        echo \"== Wait for rollout ==\"
-        kubectl -n demo rollout status deploy/web --timeout=180s
-        kubectl -n demo wait --for=condition=Ready pod -l app=web --timeout=180s
-
-        echo \"== Result ==\"
-        kubectl -n demo get deploy,svc,pods -o wide
-
-        echo \"== Open ==\"
-        echo http://192.168.49.2:30080
+        kubectl -n demo get svc,pods -o wide
       "'

@@ -1,0 +1,34 @@
+
+
+global:
+  namespace: ${K8S_NAMESPACE:-demo}
+  defaultRegistry: ${DOCKER_REGISTRY:-quay.io}
+
+secrets:
+  create: true
+  name: quotation-book-secrets
+  postgres:
+    superuserPassword: "${POSTGRES_SUPERUSER_PASSWORD}"
+    appPassword: "${POSTGRES_DB_PASSWORD}"
+    keycloakPassword: "${KC_DB_PASSWORD}"
+  keycloak:
+    adminPassword: "${KEYCLOAK_ADMIN_PASSWORD}"
+  redis:
+    password: "${REDIS_PASS}"
+  rabbitmq:
+    adminPassword: "${RABBITMQ_ADM_PASSWORD}"
+    senderPassword: "${RABBITMQ_SENDER_PASSWORD}"
+    recipientPassword: "${RABBITMQ_RECIPIENT_PASSWORD}"
+  minio:
+    rootPassword: "${MINIO_ROOT_PASSWORD}"
+  backend:
+    flaskSecretKey: "${FLASK_SECRET_KEY}"
+    keycloakClientSecret: "${KEYCLOAK_CLIENT_SECRET}"
+
+tls:
+  enabled: ${TLS_ENABLED:-false}
+  create: ${TLS_CREATE:-false}
+  name: ${TLS_SECRET_NAME:-quotation-book-tls}
+  certificateCrtB64: "${TLS_CERTIFICATE_CRT_B64}"
+  privateKeyB64: "${TLS_PRIVATE_KEY_B64}"
+  caRootCrtB64: "${TLS_CA_ROOT_CRT_B64}"

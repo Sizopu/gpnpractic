@@ -1,0 +1,122 @@
+global:
+  namespace: quotation-book
+  defaultPullPolicy: Always
+postgres:
+  persistence:
+    size: 20Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: '2'
+      memory: 4Gi
+  service:
+    type: NodePort
+redis:
+  persistence:
+    size: 5Gi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+  service:
+    type: NodePort
+rabbitmq:
+  persistence:
+    size: 10Gi
+  service:
+    management:
+      type: ClusterIP
+    type: NodePort
+  resources:
+    requests:
+      cpu: 300m
+      memory: 1Gi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+minio:
+  persistence:
+    size: 50Gi
+  service:
+    console:
+      type: NodePort
+    api:
+      type: NodePort
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: '2'
+      memory: 4Gi
+keycloak:
+  service:
+    https:
+      type: NodePort
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+backend:
+  replicaCount: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: '2'
+      memory: 2Gi
+  service:
+    type: NodePort
+frontend:
+  service:
+    type: NodePort
+    port: 8443
+  replicaCount: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 60
+    targetMemoryUtilizationPercentage: 80
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: '1'
+      memory: 1Gi
+pgadmin:
+  service:
+    type: NodePort
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+observability:
+  javascript:
+    service:
+      type: NodePort
+  java:
+    service:
+      type: NodePort
+  dotnet:
+    service:
+      type: NodePort

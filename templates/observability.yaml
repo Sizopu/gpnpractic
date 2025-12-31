@@ -1,0 +1,187 @@
+{{- if .Values.observability.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.observability.java.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: java-obs
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.observability.java.service.type }}
+  selector:
+    app.kubernetes.io/name: java-obs
+  ports:
+    - name: https
+      port: {{ .Values.observability.java.service.port }}
+      targetPort: https
+{{- if eq .Values.observability.java.service.type "NodePort" }}
+      nodePort: {{ .Values.observability.java.service.nodePort }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.observability.java.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: java-obs
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: java-obs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: java-obs
+        {{- include "qb.labels" . | nindent 8 }}
+    spec:
+      {{- include "qb.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: java-obs
+          image: {{ include "qb.image" (dict "image" .Values.observability.java.image "global" .Values.global) }}
+          imagePullPolicy: {{ include "qb.pullPolicy" (dict "image" .Values.observability.java.image "global" .Values.global) }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.observability.java.service.port }}
+          {{- with .Values.observability.java.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 60
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.observability.dotnet.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: dotnet-obs
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.observability.dotnet.service.type }}
+  selector:
+    app.kubernetes.io/name: dotnet-obs
+  ports:
+    - name: http
+      port: {{ .Values.observability.dotnet.service.port }}
+      targetPort: http
+{{- if eq .Values.observability.dotnet.service.type "NodePort" }}
+      nodePort: {{ .Values.observability.dotnet.service.nodePort }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.observability.dotnet.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: dotnet-obs
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dotnet-obs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dotnet-obs
+        {{- include "qb.labels" . | nindent 8 }}
+    spec:
+      {{- include "qb.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: dotnet-obs
+          image: {{ include "qb.image" (dict "image" .Values.observability.dotnet.image "global" .Values.global) }}
+          imagePullPolicy: {{ include "qb.pullPolicy" (dict "image" .Values.observability.dotnet.image "global" .Values.global) }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.observability.dotnet.service.port }}
+          {{- with .Values.observability.dotnet.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.observability.javascript.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: js-obs
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.observability.javascript.service.type }}
+  selector:
+    app.kubernetes.io/name: js-obs
+  ports:
+    - name: https
+      port: {{ .Values.observability.javascript.service.port }}
+      targetPort: https
+      {{- if eq .Values.observability.javascript.service.type "NodePort" }}
+      nodePort: {{ .Values.observability.javascript.service.nodePort }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.observability.javascript.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: js-obs
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: js-obs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: js-obs
+        {{- include "qb.labels" . | nindent 8 }}
+    spec:
+      {{- include "qb.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: js-obs
+          image: {{ include "qb.image" (dict "image" .Values.observability.javascript.image "global" .Values.global) }}
+          imagePullPolicy: {{ include "qb.pullPolicy" (dict "image" .Values.observability.javascript.image "global" .Values.global) }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.observability.javascript.service.port }}
+          {{- with .Values.observability.javascript.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          livenessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 60
+            periodSeconds: 20
+{{- end }}

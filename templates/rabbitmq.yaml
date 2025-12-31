@@ -1,0 +1,187 @@
+{{- if .Values.rabbitmq.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.rabbitmq.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.rabbitmq.service.type }}
+  selector:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: rabbitmq
+  ports:
+    - name: amqp
+      port: {{ .Values.rabbitmq.service.port }}
+      targetPort: amqp
+{{- if eq .Values.rabbitmq.service.type "NodePort" }}
+      nodePort: {{ .Values.rabbitmq.service.nodePorts.amqp }}
+{{- end }}
+    - name: amqps
+      port: {{ .Values.rabbitmq.service.tlsPort }}
+      targetPort: amqps
+{{- if eq .Values.rabbitmq.service.type "NodePort" }}
+      nodePort: {{ .Values.rabbitmq.service.nodePorts.amqps }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.rabbitmq.name }}-management
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: rabbitmq
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.rabbitmq.service.management.type }}
+  selector:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: rabbitmq
+  ports:
+    - name: mgmt
+      port: {{ .Values.rabbitmq.service.managementPort }}
+      targetPort: mgmt
+      {{- if eq .Values.rabbitmq.service.management.type "NodePort" }}
+      nodePort: {{ .Values.rabbitmq.service.management.nodePort }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.rabbitmq.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/component: rabbitmq
+    {{- include "qb.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ .Values.rabbitmq.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+      app.kubernetes.io/component: rabbitmq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        app.kubernetes.io/component: rabbitmq
+        {{- include "qb.labels" . | nindent 8 }}
+    spec:
+      {{- include "qb.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        fsGroup: 10000
+      {{- if and .Values.tls.enabled .Values.rabbitmq.env.enableSsl }}
+      volumes:
+        - name: qb-tls
+          secret:
+            secretName: {{ .Values.tls.name }}
+            items:
+              - key: certificate.crt
+                path: certificate.crt
+              - key: private.key
+                path: private.key
+      {{- end }}
+      containers:
+        - name: rabbitmq
+          image: {{ include "qb.image" (dict "image" .Values.rabbitmq.image "global" .Values.global) }}
+          imagePullPolicy: {{ include "qb.pullPolicy" (dict "image" .Values.rabbitmq.image "global" .Values.global) }}
+          ports:
+            - name: amqp
+              containerPort: {{ .Values.rabbitmq.service.port }}
+            - name: amqps
+              containerPort: {{ .Values.rabbitmq.service.tlsPort }}
+            - name: mgmt
+              containerPort: {{ .Values.rabbitmq.service.managementPort }}
+          env:
+            - name: RABBITMQ_HOST
+              value: {{ .Values.rabbitmq.name | quote }}
+            - name: RABBITMQ_PORT
+              value: {{ .Values.rabbitmq.service.port | quote }}
+            - name: RABBITMQ_PORT_SSL
+              value: {{ .Values.rabbitmq.service.tlsPort | quote }}
+            - name: RABBITMQ_MANAGEMENT_PORT
+              value: {{ .Values.rabbitmq.service.managementPort | quote }}
+            - name: RABBITMQ_VHOST
+              value: {{ .Values.rabbitmq.env.vhost | quote }}
+            - name: RABBITMQ_ADM_LOGIN
+              value: gpn-admin
+            - name: RABBITMQ_ADM_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: RABBITMQ_ADM_PASSWORD
+            - name: RABBITMQ_SENDER_LOGIN
+              value: gpn-sender
+            - name: RABBITMQ_SENDER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: RABBITMQ_SENDER_PASSWORD
+            - name: RABBITMQ_RECIPIENT_LOGIN
+              value: gpn-recipient
+            - name: RABBITMQ_RECIPIENT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: RABBITMQ_RECIPIENT_PASSWORD
+            - name: ENABLE_SSL_RABBITMQ
+              value: {{ ternary "true" "false" .Values.rabbitmq.env.enableSsl | quote }}
+            - name: RABBITMQ_CERT_FILE
+              value: /opt/rabbitmq/certs/certificate.crt
+            - name: RABBITMQ_KEY_FILE
+              value: /opt/rabbitmq/certs/private.key
+            - name: DEFINITIONS_JSON_FILE
+              value: /opt/rabbitmq/conf/definitions.json
+            - name: LANG
+              value: C.UTF-8
+            - name: LC_ALL
+              value: C.UTF-8
+            - name: ELIXIR_ERL_OPTIONS
+              value: "+fnu"
+
+          {{- with .Values.rabbitmq.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            exec:
+              command: ["sh","-c","bash -lc 'echo > /dev/tcp/127.0.0.1/{{ .Values.rabbitmq.service.port }} && echo > /dev/tcp/127.0.0.1/{{ .Values.rabbitmq.service.managementPort }}'"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["sh","-c","bash -lc 'echo > /dev/tcp/127.0.0.1/{{ .Values.rabbitmq.service.port }} && echo > /dev/tcp/127.0.0.1/{{ .Values.rabbitmq.service.managementPort }}'"]
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq/mnesia
+            {{- if and .Values.tls.enabled .Values.rabbitmq.env.enableSsl }}
+            - name: qb-tls
+              mountPath: /opt/rabbitmq/certs
+              readOnly: true
+            {{- end }}
+  {{- if .Values.rabbitmq.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.rabbitmq.persistence.storageClass }}
+        storageClassName: {{ .Values.rabbitmq.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.rabbitmq.persistence.size | quote }}
+  {{- else }}
+  volumeClaimTemplates: []
+  {{- end }}
+{{- end }}
