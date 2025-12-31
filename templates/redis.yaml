@@ -6,7 +6,6 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: redis
-    app.kubernetes.io/component: redis
     {{- include "qb.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.redis.service.type }}
@@ -17,15 +16,15 @@ spec:
     - name: redis
       port: {{ .Values.redis.service.port }}
       targetPort: redis
-      {{- if eq .Values.redis.service.type "NodePort" }}
-      nodePort: {{ .Values.redis.service.nodePort }}
-      {{- end }}
+{{- if eq .Values.redis.service.type "NodePort" }}
+      nodePort: {{ .Values.redis.service.nodePorts.redis }}
+{{- end }}
     - name: redis-tls
       port: {{ .Values.redis.service.tlsPort }}
       targetPort: redis-tls
-      {{- if eq .Values.redis.service.type "NodePort" }}
-      nodePort: {{ .Values.redis.service.tlsNodePort }}
-      {{- end }}
+{{- if eq .Values.redis.service.type "NodePort" }}
+      nodePort: {{ .Values.redis.service.nodePorts.rediss }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -57,7 +56,7 @@ spec:
       volumes:
         - name: qb-tls
           secret:
-            secretName: {{ default "quotation-book-tls" .Values.tls.secretName | lower }}
+            secretName: {{ .Values.tls.name }}
             items:
               - key: certificate.crt
                 path: certificate.crt
@@ -65,7 +64,7 @@ spec:
                 path: private.key
         - name: qb-ca
           secret:
-            secretName: {{ default "quotation-book-tls" .Values.tls.secretName | lower }}
+            secretName: {{ .Values.tls.name }}
             items:
               - key: sandbox_ca_root.crt
                 path: sandbox_ca_root.crt
@@ -89,23 +88,48 @@ spec:
                   key: REDIS_PASS
             - name: REDIS_PORT
               value: {{ .Values.redis.service.port | quote }}
-            - name: REDIS_TLS_PORT
+            - name: ENABLE_SSL
+              value: {{ ternary "true" "" .Values.redis.tls.enabled | quote }}
+            - name: TLS_PORT
               value: {{ .Values.redis.service.tlsPort | quote }}
-            - name: REDIS_TLS_ENABLED
-              value: {{ .Values.redis.tls.enabled | quote }}
+            - name: TLS_CERT_FILE
+              value: /opt/redis/certs/certificate.crt
+            - name: TLS_KEY_FILE
+              value: /opt/redis/certs/private.key
+            - name: TLS_CA_CERT_FILE
+              value: /etc/pki/ca-trust/source/anchors/sandbox_ca_root.crt
+            - name: TLS_CLIENT_CERT_AUTH
+              value: {{ ternary "true" "false" .Values.redis.tls.clientCertAuth | quote }}
+            - name: REDIS_CONF
+              value: /etc/redis/redis.conf
+
           {{- with .Values.redis.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          readinessProbe:
+            exec:
+              command: ["sh","-c","REDISCLI_AUTH=$REDIS_PASS redis-cli -h 127.0.0.1 -p {{ .Values.redis.service.port }} ping | grep -q PONG"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["sh","-c","REDISCLI_AUTH=$REDIS_PASS redis-cli -h 127.0.0.1 -p {{ .Values.redis.service.port }} ping | grep -q PONG"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: data
-              mountPath: /bitnami/redis/data
+              mountPath: /var/lib/redis
             {{- if and .Values.tls.enabled .Values.redis.tls.enabled }}
             - name: qb-tls
-              mountPath: /etc/redis/tls
+              mountPath: /opt/redis/certs
               readOnly: true
             - name: qb-ca
-              mountPath: /etc/redis/ca
+              mountPath: /etc/pki/ca-trust/source/anchors
               readOnly: true
             {{- end }}
   {{- if .Values.redis.persistence.enabled }}

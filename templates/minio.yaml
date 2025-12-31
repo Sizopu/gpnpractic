@@ -72,14 +72,73 @@ spec:
       volumes:
         - name: qb-tls
           secret:
-            secretName: {{ default "quotation-book-tls" .Values.tls.secretName | lower }}
+            secretName: {{ .Values.tls.name }}
             items:
-  - key: certificate.crt
-    path: public.crt
-  - key: private.key
-    path: private.key
-  - key: sandbox_ca_root.crt
-    path: CAs/sandbox_ca_root.crt
+              - key: certificate.crt
+                path: certificate.crt
+              - key: private.key
+                path: private.key
+              - key: sandbox_ca_root.crt
+                path: sandbox_ca_root.crt
+      {{- end }}
+      containers:
+        - name: minio
+          image: {{ include "qb.image" (dict "image" .Values.minio.image "global" .Values.global) }}
+          imagePullPolicy: {{ include "qb.pullPolicy" (dict "image" .Values.minio.image "global" .Values.global) }}
+          args:
+            - minio
+            - server
+            - /bitnami/minio/data
+            - --certs-dir
+            - {{ .Values.minio.env.certsDir | quote }}
+            - --console-address
+            - :{{ .Values.minio.service.consolePort }}
+            - --address
+            - :{{ .Values.minio.service.apiPort }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.minio.service.apiPort }}
+            - name: console
+              containerPort: {{ .Values.minio.service.consolePort }}
+          env:
+            - name: MINIO_ROOT_USER
+              value: gpn-admin
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_CERTS_DIR
+              value: {{ .Values.minio.env.certsDir | quote }}
+            - name: MINIO_API_PORT
+              value: {{ .Values.minio.service.apiPort | quote }}
+            - name: MINIO_CONSOLE_PORT
+              value: {{ .Values.minio.service.consolePort | quote }}
+            - name: MINIO_SERVER_URL
+              value: {{ printf "%s://%s:%d" .Values.minio.env.scheme .Values.minio.name .Values.minio.service.apiPort | quote }}
+
+          {{- with .Values.minio.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+              scheme: {{ ternary "HTTPS" "HTTP" (eq .Values.minio.env.scheme "https") }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+              scheme: {{ ternary "HTTPS" "HTTP" (eq .Values.minio.env.scheme "https") }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: data
               mountPath: /bitnami/minio/data

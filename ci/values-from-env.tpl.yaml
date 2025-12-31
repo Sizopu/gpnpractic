@@ -19,8 +19,6 @@ secrets:
     recipientPassword: "${RABBITMQ_RECIPIENT_PASSWORD}"
   minio:
     rootPassword: "${MINIO_ROOT_PASSWORD}"
-  pgadmin:
-    password: "${PGADMIN_PASSWORD}"
   backend:
     flaskSecretKey: "${FLASK_SECRET_KEY}"
     keycloakClientSecret: "${KEYCLOAK_CLIENT_SECRET}"
@@ -29,6 +27,7 @@ tls:
   enabled: ${TLS_ENABLED}
   create: ${TLS_CREATE}
   secretName: ${TLS_SECRET_NAME}
+  name: ${TLS_SECRET_NAME}
   certificateCrtB64: "${TLS_CERTIFICATE_CRT_B64}"
   privateKeyB64: "${TLS_PRIVATE_KEY_B64}"
   caRootCrtB64: "${TLS_CA_ROOT_CRT_B64}"

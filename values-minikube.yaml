@@ -1,6 +1,18 @@
 global:
   namespace: demo
+
+namespace:
+  create: false
+  name: demo
+
+tls:
+  enabled: true
+  create: true
+  name: quotation-book-tls
+  secretName: quotation-book-tls
+
 postgres:
+  enabled: false
   persistence:
     size: 2Gi
   resources:
@@ -12,7 +24,9 @@ postgres:
       memory: 768Mi
   service:
     type: NodePort
+
 postgresMigration:
+  enabled: false
   resources:
     requests:
       cpu: 25m
@@ -20,7 +34,9 @@ postgresMigration:
     limits:
       cpu: 150m
       memory: 256Mi
+
 redis:
+  enabled: false
   persistence:
     size: 512Mi
   resources:
@@ -32,7 +48,9 @@ redis:
       memory: 256Mi
   service:
     type: NodePort
+
 rabbitmq:
+  enabled: false
   persistence:
     size: 1Gi
   resources:
@@ -44,7 +62,9 @@ rabbitmq:
       memory: 512Mi
   service:
     type: NodePort
+
 minio:
+  enabled: false
   persistence:
     size: 2Gi
   resources:
@@ -59,7 +79,9 @@ minio:
       type: NodePort
     console:
       type: NodePort
+
 minioMigration:
+  enabled: false
   resources:
     requests:
       cpu: 25m
@@ -67,18 +89,22 @@ minioMigration:
     limits:
       cpu: 150m
       memory: 256Mi
+
 keycloak:
+  enabled: false
   resources:
     requests:
       cpu: 100m
-      memory: 384Mi
+      memory: 512Mi
     limits:
-      cpu: 500m
-      memory: 768Mi
+      cpu: 600m
+      memory: 1024Mi
   service:
     https:
       type: NodePort
+
 backend:
+  enabled: false
   replicaCount: 1
   autoscaling:
     enabled: false
@@ -91,7 +117,9 @@ backend:
       memory: 512Mi
   service:
     type: NodePort
+
 frontend:
+  enabled: false
   replicaCount: 1
   autoscaling:
     enabled: false
@@ -104,7 +132,9 @@ frontend:
       memory: 256Mi
   service:
     type: NodePort
+
 pgadmin:
+  enabled: false
   resources:
     requests:
       cpu: 25m
@@ -114,7 +144,9 @@ pgadmin:
       memory: 256Mi
   service:
     type: NodePort
+
 observability:
+  enabled: false
   java:
     resources:
       requests:
