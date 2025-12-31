@@ -6,45 +6,79 @@ deploy_minikube_helm:
   image: alpine:latest
   tags:
     - docker-runner
+
+  variables:
+    NAMESPACE: demo
+    RELEASE: quotation-book
+    REMOTE_DIR: /tmp/qb-chart
+    VALUES_OVERLAY: values-minikube.yaml
+
   before_script:
-    - apk add --no-cache openssh-client bash gettext
+    - apk add --no-cache openssh-client bash gettext curl tar
+
     - mkdir -p ~/.ssh
     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
 
-    # restore .env from GitLab File var
     - cp "$QB_ENV_FILE" .env
     - set -a; . ./.env; set +a
 
-    # (optional) enable TLS secret rendering
+
     - export TLS_ENABLED="${TLS_ENABLED:-false}"
     - export TLS_CREATE="${TLS_CREATE:-false}"
 
-    # render values from env -> /tmp/values-ci.yaml
-    - chmod +x quotation-book/ci/render-values.sh
-    - quotation-book/ci/render-values.sh quotation-book/ci/values-from-env.tpl.yaml /tmp/values-ci.yaml
+    - chmod +x ./render-values.sh
+    - ./render-values.sh ./values-from-env.tpl.yaml /tmp/values-ci.yaml
+
+    - |
+      tar -czf /tmp/qb-chart.tgz \
+        Chart.yaml \
+        values.yaml \
+        values-minikube.yaml \
+        values-prod.yaml \
+        templates
 
   script:
     - |
       ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
         set -e
+        echo \"== Cluster ==\"
         kubectl get nodes -o wide
-        command -v helm >/dev/null 2>&1 || { echo \"helm not found on server\"; exit 1; }
-        kubectl get ns demo >/dev/null 2>&1 || kubectl create ns demo
-        rm -rf /tmp/qb-chart && mkdir -p /tmp/qb-chart
+
+        echo \"== Ensure namespace ==\"
+        kubectl get ns '"$NAMESPACE"' >/dev/null 2>&1 || kubectl create ns '"$NAMESPACE"'
+
+        echo \"== Ensure helm ==\"
+        if ! command -v helm >/dev/null 2>&1; then
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        fi
+
+        rm -rf '"$REMOTE_DIR"'
+        mkdir -p '"$REMOTE_DIR"'
       "'
 
-    - scp -i ~/.ssh/id_ed25519 -r quotation-book "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-chart/"
-    - scp -i ~/.ssh/id_ed25519 /tmp/values-ci.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-values-ci.yaml"
+    - scp -i ~/.ssh/id_ed25519 /tmp/qb-chart.tgz "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-chart.tgz"
+    - scp -i ~/.ssh/id_ed25519 /tmp/values-ci.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/values-ci.yaml"
 
     - |
       ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
         set -e
-        helm upgrade --install quotation-book /tmp/qb-chart/quotation-book \
-          -n demo \
-          -f /tmp/qb-values-ci.yaml \
-          -f /tmp/qb-chart/quotation-book/values-minikube.yaml
+        tar -xzf /tmp/qb-chart.tgz -C '"$REMOTE_DIR"'
 
-        kubectl -n demo get svc,pods -o wide
+        echo \"== Helm upgrade/install ==\"
+        helm upgrade --install '"$RELEASE"' '"$REMOTE_DIR"' \
+          -n '"$NAMESPACE"' \
+          -f /tmp/values-ci.yaml \
+          -f '"$REMOTE_DIR"'/'"$VALUES_OVERLAY"'
+
+        echo \"== Wait rollout ==\"
+        kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-frontend --timeout=180s || true
+        kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-backend  --timeout=180s || true
+
+        echo \"== Result ==\"
+        kubectl -n '"$NAMESPACE"' get pods,svc -o wide
+
+        echo \"== Frontend URL (NodePort) ==\"
+        echo https://$(minikube ip):30443
       "'
