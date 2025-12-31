@@ -5,6 +5,11 @@ deploy_minikube:
   image: alpine:latest
   tags: [docker-runner]
   timeout: 60m
+  variables:
+    RELEASE: quotation-book
+    NAMESPACE: demo
+    REMOTE_DIR: /tmp/qb-chart
+    VALUES_OVERLAY: values-minikube.yaml
   before_script:
     - apk add --no-cache bash openssh-client curl tar coreutils gettext
     - mkdir -p ~/.ssh

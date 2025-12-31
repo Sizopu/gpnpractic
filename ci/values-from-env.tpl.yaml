@@ -1,32 +1,93 @@
-global:
-  defaultRegistry: ${DOCKER_REGISTRY}
+#!/usr/bin/env bash
+set -euo pipefail
 
-secrets:
-  create: true
-  name: quotation-book-secrets
-  postgres:
-    superuserPassword: "${POSTGRES_SUPERUSER_PASSWORD}"
-    appPassword: "${POSTGRES_DB_PASSWORD}"
-    keycloakPassword: "${KC_DB_PASSWORD}"
-  keycloak:
-    adminPassword: "${KEYCLOAK_ADMIN_PASSWORD}"
-  redis:
-    password: "${REDIS_PASS}"
-  rabbitmq:
-    adminPassword: "${RABBITMQ_ADM_PASSWORD}"
-    senderPassword: "${RABBITMQ_SENDER_PASSWORD}"
-    recipientPassword: "${RABBITMQ_RECIPIENT_PASSWORD}"
-  minio:
-    rootPassword: "${MINIO_ROOT_PASSWORD}"
-  backend:
-    flaskSecretKey: "${FLASK_SECRET_KEY}"
-    keycloakClientSecret: "${KEYCLOAK_CLIENT_SECRET}"
+: "${MINIKUBE_HOST:?}"
+: "${MINIKUBE_USER:?}"
+: "${QB_ENV_FILE:?}"
 
-tls:
-  enabled: ${TLS_ENABLED}
-  create: ${TLS_CREATE}
-  secretName: ${TLS_SECRET_NAME}
-  name: ${TLS_SECRET_NAME}
-  certificateCrtB64: "${TLS_CERTIFICATE_CRT_B64}"
-  privateKeyB64: "${TLS_PRIVATE_KEY_B64}"
-  caRootCrtB64: "${TLS_CA_ROOT_CRT_B64}"
+RELEASE="${RELEASE:-quotation-book}"
+NAMESPACE="${NAMESPACE:-demo}"
+REMOTE_DIR="${REMOTE_DIR:-/tmp/qb-chart}"
+VALUES_OVERLAY="${VALUES_OVERLAY:-values-minikube.yaml}"
+HELM_TIMEOUT="${HELM_TIMEOUT:-25m}"
+
+cp "$QB_ENV_FILE" .env
+set -a; . ./.env; set +a
+
+export DOCKER_REGISTRY="${DOCKER_REGISTRY:-quay.io}"
+export TLS_ENABLED="${TLS_ENABLED:-true}"
+export TLS_CREATE="${TLS_CREATE:-true}"
+export TLS_SECRET_NAME="$(echo "${TLS_SECRET_NAME:-quotation-book-tls}" | tr '[:upper:]' '[:lower:]')"
+
+if [ "$TLS_CREATE" = "true" ]; then
+  CERT_SRC="./docker/ssl/certs/certificate.crt"
+  KEY_SRC="./docker/ssl/certs/private.key"
+  CA_SRC="./docker/certs/sandbox_ca_root.crt"
+
+  [ -f "$CERT_SRC" ] || { echo "missing $CERT_SRC"; exit 1; }
+  [ -f "$KEY_SRC" ]  || { echo "missing $KEY_SRC"; exit 1; }
+
+  export TLS_CERTIFICATE_CRT_B64="$(cat "$CERT_SRC" | base64 | tr -d '\n')"
+  export TLS_PRIVATE_KEY_B64="$(cat "$KEY_SRC" | base64 | tr -d '\n')"
+  if [ -f "$CA_SRC" ]; then
+    export TLS_CA_ROOT_CRT_B64="$(cat "$CA_SRC" | base64 | tr -d '\n')"
+  else
+    export TLS_CA_ROOT_CRT_B64=""
+  fi
+fi
+
+[ -f ./ci/values-from-env.tpl.yaml ] || { echo "missing ./ci/values-from-env.tpl.yaml"; exit 1; }
+envsubst < ./ci/values-from-env.tpl.yaml > /tmp/values-ci.yaml
+cp "$VALUES_OVERLAY" /tmp/values-overlay.yaml
+
+tar -czf /tmp/qb-chart-files.tgz Chart.yaml templates values.yaml values-minikube.yaml values-prod.yaml ci/values-from-env.tpl.yaml
+
+scp /tmp/qb-chart-files.tgz "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-chart-files.tgz"
+scp /tmp/values-ci.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/values-ci.yaml"
+scp /tmp/values-overlay.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/values-overlay.yaml"
+
+ssh "$MINIKUBE_USER@$MINIKUBE_HOST" bash -s <<EOF
+set -euo pipefail
+
+RELEASE="$RELEASE"
+NS="$NAMESPACE"
+REMOTE_DIR="$REMOTE_DIR"
+HELM_TIMEOUT="$HELM_TIMEOUT"
+
+kubectl get ns "\$NS" >/dev/null 2>&1 || kubectl create ns "\$NS"
+
+if ! command -v helm >/dev/null 2>&1; then
+  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+fi
+
+rm -rf "\$REMOTE_DIR"
+mkdir -p "\$REMOTE_DIR"
+tar -xzf /tmp/qb-chart-files.tgz -C "\$REMOTE_DIR"
+
+h() {
+  helm upgrade --install "\$RELEASE" "\$REMOTE_DIR" -n "\$NS" --create-namespace \
+    -f /tmp/values-ci.yaml -f /tmp/values-overlay.yaml \$1 --wait --timeout "\$HELM_TIMEOUT"
+}
+
+BASE="--set postgres.enabled=true --set redis.enabled=true --set rabbitmq.enabled=true"
+h "\$BASE"
+h "\$BASE --set postgresMigration.enabled=true"
+
+BASE_MINIO="\$BASE --set minio.enabled=true"
+h "\$BASE_MINIO"
+h "\$BASE_MINIO --set minioMigration.enabled=true"
+
+BASE_KC="\$BASE_MINIO --set keycloak.enabled=true"
+h "\$BASE_KC"
+
+BASE_BE="\$BASE_KC --set backend.enabled=true"
+h "\$BASE_BE"
+
+BASE_FE="\$BASE_BE --set frontend.enabled=true"
+h "\$BASE_FE"
+
+h "\$BASE_FE --set postgresMigration.enabled=false --set minioMigration.enabled=false"
+
+kubectl -n "\$NS" get pods,svc -o wide
+helm -n "\$NS" status "\$RELEASE"
+EOF
