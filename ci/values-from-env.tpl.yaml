@@ -26,8 +26,9 @@ secrets:
     keycloakClientSecret: "${KEYCLOAK_CLIENT_SECRET}"
 
 tls:
-  enabled: ${TLS_ENABLED:-false}
-  create: ${TLS_CREATE:-false}
+  enabled: ${TLS_ENABLED}
+  create: ${TLS_CREATE}
+  secretName: ${TLS_SECRET_NAME}
   name: ${TLS_SECRET_NAME:-quotation-book-tls}
   certificateCrtB64: "${TLS_CERTIFICATE_CRT_B64}"
   privateKeyB64: "${TLS_PRIVATE_KEY_B64}"

@@ -8,35 +8,28 @@ secrets:
   create: true
   name: quotation-book-secrets
   postgres:
-    # set via CI / GitLab variables
     superuserPassword: ""
     appPassword: ""
     keycloakPassword: ""
   keycloak:
-    # set via CI / GitLab variables
     adminPassword: ""
   redis:
-    # set via CI / GitLab variables
     password: ""
   rabbitmq:
-    # set via CI / GitLab variables
     adminPassword: ""
     senderPassword: ""
     recipientPassword: ""
   minio:
-    # set via CI / GitLab variables
     rootPassword: ""
   backend:
-    # set via CI / GitLab variables
     flaskSecretKey: ""
     keycloakClientSecret: ""
 
-# Optional: TLS material mounted into pods (recommended for remote minikube/prod)
 tls:
   enabled: false
   create: false
+  secretName: quotation-book-tls
   name: quotation-book-tls
-  # base64 of files (single-line)
   certificateCrtB64: ""
   privateKeyB64: ""
   caRootCrtB64: ""
