@@ -14,6 +14,7 @@ deploy_minikube_helm:
     VALUES_OVERLAY: values-minikube.yaml
     TLS_ENABLED: "true"
     TLS_CREATE: "true"
+    HELM_NAMESPACE_CREATE: "false"
 
   before_script:
     - apk add --no-cache openssh-client bash gettext curl tar coreutils
@@ -30,23 +31,19 @@ deploy_minikube_helm:
 
     - |
       if [ "$TLS_CREATE" = "true" ]; then
-        CERT_SRC=""
-        KEY_SRC=""
-        CA_SRC=""
+        CERT_SRC="./docker/ssl/certs/certificate.crt"
+        KEY_SRC="./docker/ssl/certs/private.key"
+        CA_SRC="./docker/certs/sandbox_ca_root.crt"
 
-        if [ -f "./docker/ssl/certs/certificate.crt" ]; then CERT_SRC="./docker/ssl/certs/certificate.crt"; fi
-        if [ -f "./docker/ssl/certs/private.key" ]; then KEY_SRC="./docker/ssl/certs/private.key"; fi
-        if [ -f "./docker/certs/sandbox_ca_root.crt" ]; then CA_SRC="./docker/certs/sandbox_ca_root.crt"; fi
-
-        if [ -z "$CERT_SRC" ] || [ -z "$KEY_SRC" ]; then
+        if [ ! -f "$CERT_SRC" ] || [ ! -f "$KEY_SRC" ]; then
           echo "TLS_CREATE=true but certificate/key not found"
-          find ./docker -maxdepth 4 -type f \( -name 'certificate.crt' -o -name 'private.key' -o -name 'sandbox_ca_root.crt' \) -print 2>/dev/null || true
+          find ./docker -maxdepth 6 -type f \( -name 'certificate.crt' -o -name 'private.key' -o -name 'sandbox_ca_root.crt' \) -print 2>/dev/null || true
           exit 1
         fi
 
         export TLS_CERTIFICATE_CRT_B64="$(cat "$CERT_SRC" | base64 | tr -d '\n')"
         export TLS_PRIVATE_KEY_B64="$(cat "$KEY_SRC" | base64 | tr -d '\n')"
-        if [ -n "$CA_SRC" ]; then export TLS_CA_ROOT_CRT_B64="$(cat "$CA_SRC" | base64 | tr -d '\n')"; fi
+        if [ -f "$CA_SRC" ]; then export TLS_CA_ROOT_CRT_B64="$(cat "$CA_SRC" | base64 | tr -d '\n')"; fi
       fi
 
     - |
@@ -110,8 +107,11 @@ deploy_minikube_helm:
         tar -xzf /tmp/qb-chart.tgz -C '"$REMOTE_DIR"'
         helm upgrade --install '"$RELEASE"' '"$REMOTE_DIR"' \
           -n '"$NAMESPACE"' \
+          --create-namespace \
           -f /tmp/values-ci.yaml \
-          -f /tmp/values-overlay.yaml
+          -f /tmp/values-overlay.yaml \
+          --set namespace.create='"$HELM_NAMESPACE_CREATE"' \
+          --set namespace.name='"$NAMESPACE"'
         kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-frontend --timeout=180s || true
         kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-backend  --timeout=180s || true
         kubectl -n '"$NAMESPACE"' get pods,svc -o wide
