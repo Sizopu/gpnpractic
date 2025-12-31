@@ -108,7 +108,9 @@ deploy_minikube_helm:
         helm upgrade --install '"$RELEASE"' '"$REMOTE_DIR"' \
           -n '"$NAMESPACE"' \
           -f /tmp/values-ci.yaml \
-          -f /tmp/values-overlay.yaml
+          -f /tmp/values-overlay.yaml \
+          --set namespace.create=false \
+          --set namespace.name='"$NAMESPACE"'
         kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-frontend --timeout=180s || true
         kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-backend  --timeout=180s || true
         kubectl -n '"$NAMESPACE"' get pods,svc -o wide
