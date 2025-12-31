@@ -4,16 +4,29 @@ stages:
 deploy_minikube:
   stage: deploy
   image: alpine:3.20
-  tags:
-    - docker-runner
+  tags: [docker-runner]
+
   variables:
     NAMESPACE: demo
     RELEASE: quotation-book
     VALUES_OVERLAY: values-minikube.yaml
     REMOTE_DIR: /tmp/qb
     WAIT_TIMEOUT: "180s"
+
   before_script:
     - apk add --no-cache bash openssh-client curl tar coreutils gettext
+    - mkdir -p ~/.ssh
+    - |
+      if [ -f "${SSH_PRIVATE_KEY:-}" ]; then
+        cp "$SSH_PRIVATE_KEY" ~/.ssh/id_ed25519
+      else
+        printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+      fi
+    - chmod 600 ~/.ssh/id_ed25519
+    - eval "$(ssh-agent -s)"
+    - ssh-add ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
+
   script:
     - chmod +x ci/deploy-minikube.sh
     - ./ci/deploy-minikube.sh
