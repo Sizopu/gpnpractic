@@ -14,7 +14,6 @@ deploy_minikube_helm:
     VALUES_OVERLAY: values-minikube.yaml
     TLS_ENABLED: "true"
     TLS_CREATE: "true"
-    HELM_NAMESPACE_CREATE: "false"
 
   before_script:
     - apk add --no-cache openssh-client bash gettext curl tar coreutils
@@ -28,6 +27,7 @@ deploy_minikube_helm:
 
     - export TLS_ENABLED="${TLS_ENABLED:-false}"
     - export TLS_CREATE="${TLS_CREATE:-false}"
+    - export TLS_SECRET_NAME="$(echo "${TLS_SECRET_NAME:-quotation-book-tls}" | tr '[:upper:]' '[:lower:]')"
 
     - |
       if [ "$TLS_CREATE" = "true" ]; then
@@ -107,11 +107,8 @@ deploy_minikube_helm:
         tar -xzf /tmp/qb-chart.tgz -C '"$REMOTE_DIR"'
         helm upgrade --install '"$RELEASE"' '"$REMOTE_DIR"' \
           -n '"$NAMESPACE"' \
-          --create-namespace \
           -f /tmp/values-ci.yaml \
-          -f /tmp/values-overlay.yaml \
-          --set namespace.create='"$HELM_NAMESPACE_CREATE"' \
-          --set namespace.name='"$NAMESPACE"'
+          -f /tmp/values-overlay.yaml
         kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-frontend --timeout=180s || true
         kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-backend  --timeout=180s || true
         kubectl -n '"$NAMESPACE"' get pods,svc -o wide
