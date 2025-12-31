@@ -3,15 +3,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.backend.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: backend
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "backend" "component" "backend") | nindent 4 }}
 spec:
   type: {{ .Values.backend.service.type }}
   selector:
-    app.kubernetes.io/name: backend
-    app.kubernetes.io/component: backend
+    {{- include "qb.selectorLabels" (dict "name" "backend" "component" "backend") | nindent 4 }}
   ports:
     - name: https
       port: {{ .Values.backend.service.port }}
@@ -21,23 +18,17 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.backend.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: backend
-    app.kubernetes.io/component: backend
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "backend" "component" "backend") | nindent 4 }}
 spec:
   replicas: {{ ternary .Values.backend.autoscaling.minReplicas .Values.backend.replicaCount .Values.backend.autoscaling.enabled }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: backend
-      app.kubernetes.io/component: backend
+      {{- include "qb.selectorLabels" (dict "name" "backend" "component" "backend") | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: backend
-        app.kubernetes.io/component: backend
-        {{- include "qb.labels" . | nindent 8 }}
+        {{- include "qb.labelsFor" (dict "ctx" . "name" "backend" "component" "backend") | nindent 8 }}
     spec:
       {{- include "qb.imagePullSecrets" . | nindent 6 }}
       initContainers:
@@ -201,7 +192,7 @@ spec:
       volumes:
         - name: qb-tls
           secret:
-            secretName: {{ .Values.tls.name }}
+            secretName: {{ include "qb.tlsSecretName" . }}
             items:
               - key: certificate.crt
                 path: certificate.crt
@@ -209,7 +200,7 @@ spec:
                 path: private.key
         - name: qb-ca
           secret:
-            secretName: {{ .Values.tls.name }}
+            secretName: {{ include "qb.tlsSecretName" . }}
             items:
               - key: sandbox_ca_root.crt
                 path: sandbox_ca_root.crt

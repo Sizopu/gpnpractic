@@ -1,5 +1,4 @@
 global:
-  namespace: ${K8S_NAMESPACE}
   defaultRegistry: ${DOCKER_REGISTRY}
 
 secrets:

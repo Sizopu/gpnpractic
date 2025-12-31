@@ -3,15 +3,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.minio.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: minio
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "minio" "component" "minio") | nindent 4 }}
 spec:
   type: {{ .Values.minio.service.api.type }}
   selector:
-    app.kubernetes.io/name: minio
-    app.kubernetes.io/component: minio
+    {{- include "qb.selectorLabels" (dict "name" "minio" "component" "minio") | nindent 4 }}
   ports:
     - name: api
       port: {{ .Values.minio.service.apiPort }}
@@ -24,16 +21,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.minio.name }}-console
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: minio
-    app.kubernetes.io/component: minio
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "minio" "component" "minio") | nindent 4 }}
 spec:
   type: {{ .Values.minio.service.console.type }}
   selector:
-    app.kubernetes.io/name: minio
-    app.kubernetes.io/component: minio
+    {{- include "qb.selectorLabels" (dict "name" "minio" "component" "minio") | nindent 4 }}
   ports:
     - name: console
       port: {{ .Values.minio.service.consolePort }}
@@ -46,24 +39,18 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: {{ .Values.minio.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: minio
-    app.kubernetes.io/component: minio
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "minio" "component" "minio") | nindent 4 }}
 spec:
   serviceName: {{ .Values.minio.name }}
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: minio
-      app.kubernetes.io/component: minio
+      {{- include "qb.selectorLabels" (dict "name" "minio" "component" "minio") | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: minio
-        app.kubernetes.io/component: minio
-        {{- include "qb.labels" . | nindent 8 }}
+        {{- include "qb.labelsFor" (dict "ctx" . "name" "minio" "component" "minio") | nindent 8 }}
     spec:
       {{- include "qb.imagePullSecrets" . | nindent 6 }}
       securityContext:
@@ -72,7 +59,7 @@ spec:
       volumes:
         - name: qb-tls
           secret:
-            secretName: {{ .Values.tls.name }}
+            secretName: {{ include "qb.tlsSecretName" . }}
             items:
               - key: certificate.crt
                 path: certificate.crt

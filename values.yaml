@@ -1,5 +1,4 @@
 global:
-  namespace: demo
   imagePullSecrets: []
   defaultRegistry: quay.io
   defaultTag: latest

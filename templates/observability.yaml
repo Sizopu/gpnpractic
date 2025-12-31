@@ -3,14 +3,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.observability.java.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: java-obs
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "java-obs" "component" "java-obs") | nindent 4 }}
 spec:
   type: {{ .Values.observability.java.service.type }}
   selector:
-    app.kubernetes.io/name: java-obs
+    {{- include "qb.selectorLabels" (dict "name" "java-obs" "component" "java-obs") | nindent 4 }}
   ports:
     - name: https
       port: {{ .Values.observability.java.service.port }}
@@ -23,20 +21,17 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.observability.java.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: java-obs
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "java-obs" "component" "java-obs") | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: java-obs
+      {{- include "qb.selectorLabels" (dict "name" "java-obs" "component" "java-obs") | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: java-obs
-        {{- include "qb.labels" . | nindent 8 }}
+        {{- include "qb.labelsFor" (dict "ctx" . "name" "java-obs" "component" "java-obs") | nindent 8 }}
     spec:
       {{- include "qb.imagePullSecrets" . | nindent 6 }}
       containers:
@@ -65,14 +60,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.observability.dotnet.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: dotnet-obs
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "dotnet-obs" "component" "dotnet-obs") | nindent 4 }}
 spec:
   type: {{ .Values.observability.dotnet.service.type }}
   selector:
-    app.kubernetes.io/name: dotnet-obs
+    {{- include "qb.selectorLabels" (dict "name" "dotnet-obs" "component" "dotnet-obs") | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.observability.dotnet.service.port }}
@@ -85,20 +78,17 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.observability.dotnet.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: dotnet-obs
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "dotnet-obs" "component" "dotnet-obs") | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app.kubernetes.io/name: dotnet-obs
+      {{- include "qb.selectorLabels" (dict "name" "dotnet-obs" "component" "dotnet-obs") | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: dotnet-obs
-        {{- include "qb.labels" . | nindent 8 }}
+        {{- include "qb.labelsFor" (dict "ctx" . "name" "dotnet-obs" "component" "dotnet-obs") | nindent 8 }}
     spec:
       {{- include "qb.imagePullSecrets" . | nindent 6 }}
       containers:
@@ -127,7 +117,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Values.observability.javascript.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: js-obs
     {{- include "qb.labels" . | nindent 4 }}
@@ -147,7 +136,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Values.observability.javascript.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: js-obs
     {{- include "qb.labels" . | nindent 4 }}

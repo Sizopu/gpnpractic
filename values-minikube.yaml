@@ -1,8 +1,4 @@
 global:
-  namespace: demo
-
-namespace:
-  create: false
   name: demo
 
 tls:

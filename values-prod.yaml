@@ -1,5 +1,4 @@
 global:
-  namespace: quotation-book
   defaultPullPolicy: Always
 postgres:
   persistence:

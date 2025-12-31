@@ -3,10 +3,8 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ .Values.minioMigration.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: minio-migration
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "minio-migration" "component" "minio-migration") | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
@@ -16,8 +14,7 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: minio-migration
-        {{- include "qb.labels" . | nindent 8 }}
+        {{- include "qb.labelsFor" (dict "ctx" . "name" "minio-migration" "component" "minio-migration") | nindent 8 }}
     spec:
       restartPolicy: Never
       {{- include "qb.imagePullSecrets" . | nindent 6 }}

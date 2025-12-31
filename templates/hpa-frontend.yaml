@@ -3,11 +3,8 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: {{ .Values.frontend.name }}
-  namespace: {{ .Values.global.namespace }}
   labels:
-    app.kubernetes.io/name: frontend
-    app.kubernetes.io/component: frontend
-    {{- include "qb.labels" . | nindent 4 }}
+    {{- include "qb.labelsFor" (dict "ctx" . "name" "frontend" "component" "frontend") | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
