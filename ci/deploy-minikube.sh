@@ -1,23 +1,48 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${MINIKUBE_HOST:?}"
-: "${MINIKUBE_USER:?}"
-: "${SSH_PRIVATE_KEY:?}"
-: "${QB_ENV_FILE:?}"
-
-RELEASE="${RELEASE:-quotation-book}"
+# --- User-tunable (can be overridden by CI variables) ---
 NAMESPACE="${NAMESPACE:-demo}"
+RELEASE="${RELEASE:-quotation-book}"
+REMOTE_DIR="${REMOTE_DIR:-/tmp/qb}"
 VALUES_OVERLAY="${VALUES_OVERLAY:-values-minikube.yaml}"
-HELM_TIMEOUT="${HELM_TIMEOUT:-25m}"
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-180s}"
+
+MINIKUBE_HOST="${MINIKUBE_HOST:?MINIKUBE_HOST is required}"
+MINIKUBE_USER="${MINIKUBE_USER:?MINIKUBE_USER is required}"
+
+apk add --no-cache bash openssh-client curl tar coreutils gettext >/dev/null
 
 mkdir -p ~/.ssh
-printf "%s" "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-chmod 600 ~/.ssh/id_ed25519
-ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
 
-cp "$QB_ENV_FILE" .env
-set -a; . ./.env; set +a
+write_ssh_key() {
+  # Supports both "masked variable" (content) and "file variable" (path).
+  if [ -n "${SSH_PRIVATE_KEY:-}" ] && [ -f "${SSH_PRIVATE_KEY:-}" ]; then
+    cp "${SSH_PRIVATE_KEY}" ~/.ssh/id_ed25519
+  else
+    # 1) Try as base64 (common when storing keys safely), 2) fallback to raw.
+    if printf '%s' "${SSH_PRIVATE_KEY:-}" | tr -d '\r\n' | base64 -d >/root/.ssh/id_ed25519 2>/dev/null && \
+      grep -q "BEGIN" /root/.ssh/id_ed25519; then
+      :
+    else
+      printf '%s\n' "${SSH_PRIVATE_KEY:-}" | tr -d '\r' > ~/.ssh/id_ed25519
+    fi
+  fi
+  chmod 600 ~/.ssh/id_ed25519
+}
+
+write_ssh_key
+
+ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+# QB_ENV_FILE is expected to be a GitLab "file" variable.
+if [ -n "${QB_ENV_FILE:-}" ] && [ -f "${QB_ENV_FILE:-}" ]; then
+  cp "$QB_ENV_FILE" .env
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
 
 export DOCKER_REGISTRY="${DOCKER_REGISTRY:-quay.io}"
 export TLS_ENABLED="${TLS_ENABLED:-true}"
@@ -29,77 +54,171 @@ if [ "$TLS_CREATE" = "true" ]; then
   KEY_SRC="./docker/ssl/certs/private.key"
   CA_SRC="./docker/certs/sandbox_ca_root.crt"
 
-  [ -f "$CERT_SRC" ] || { echo "missing $CERT_SRC"; exit 1; }
-  [ -f "$KEY_SRC" ]  || { echo "missing $KEY_SRC"; exit 1; }
+  [ -f "$CERT_SRC" ] || { echo "Missing $CERT_SRC"; exit 1; }
+  [ -f "$KEY_SRC" ]  || { echo "Missing $KEY_SRC"; exit 1; }
 
-  export TLS_CERTIFICATE_CRT_B64="$(cat "$CERT_SRC" | base64 | tr -d '\n')"
-  export TLS_PRIVATE_KEY_B64="$(cat "$KEY_SRC" | base64 | tr -d '\n')"
+  export TLS_CERTIFICATE_CRT_B64="$(base64 -w0 < "$CERT_SRC")"
+  export TLS_PRIVATE_KEY_B64="$(base64 -w0 < "$KEY_SRC")"
   if [ -f "$CA_SRC" ]; then
-    export TLS_CA_ROOT_CRT_B64="$(cat "$CA_SRC" | base64 | tr -d '\n')"
+    export TLS_CA_ROOT_CRT_B64="$(base64 -w0 < "$CA_SRC")"
   else
     export TLS_CA_ROOT_CRT_B64=""
   fi
 fi
 
-VALUES_TPL="./ci/values-from-env.tpl.yaml"
-[ -f "$VALUES_TPL" ] || { echo "missing $VALUES_TPL"; exit 1; }
-
+# Render CI values (envsubst-friendly template).
+VALUES_TPL="ci/values-from-env.tpl.yaml"
+[ -f "$VALUES_TPL" ] || { echo "Missing $VALUES_TPL"; exit 1; }
 envsubst < "$VALUES_TPL" > /tmp/values-ci.yaml
-cp "$VALUES_OVERLAY" /tmp/values-overlay.yaml
 
-tar -czf /tmp/qb-chart.tgz \
-  Chart.yaml templates values.yaml values-prod.yaml values-minikube.yaml ci/values-from-env.tpl.yaml
+# Package the chart into a Helm-friendly tgz (must contain a top-level directory).
+CHART_TGZ=/tmp/qb-chart.tgz
+tar -czf "$CHART_TGZ" \
+  --transform 's,^,quotation-book/,' \
+  Chart.yaml \
+  templates \
+  values.yaml \
+  values-prod.yaml \
+  values-minikube.yaml
 
-tar -czf /tmp/qb-bundle.tgz -C /tmp qb-chart.tgz values-ci.yaml values-overlay.yaml
+scp_opts=(
+  -i ~/.ssh/id_ed25519
+  -o BatchMode=yes
+  -o ConnectTimeout=10
+)
+ssh_opts=(
+  -i ~/.ssh/id_ed25519
+  -o BatchMode=yes
+  -o ConnectTimeout=10
+)
 
-scp -i ~/.ssh/id_ed25519 /tmp/qb-bundle.tgz "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-bundle.tgz"
+remote="$MINIKUBE_USER@$MINIKUBE_HOST"
 
-ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" bash -lc "
+scp "${scp_opts[@]}" "$CHART_TGZ" "$remote:/tmp/qb-chart.tgz"
+scp "${scp_opts[@]}" /tmp/values-ci.yaml "$remote:/tmp/values-ci.yaml"
+
+ssh "${ssh_opts[@]}" "$remote" env \
+  NAMESPACE="$NAMESPACE" \
+  RELEASE="$RELEASE" \
+  REMOTE_DIR="$REMOTE_DIR" \
+  VALUES_OVERLAY="$VALUES_OVERLAY" \
+  WAIT_TIMEOUT="$WAIT_TIMEOUT" \
+  bash -se <<'REMOTE'
 set -euo pipefail
 
-RELEASE='$RELEASE'
-NS='$NAMESPACE'
-HELM_TIMEOUT='$HELM_TIMEOUT'
+ns="${NAMESPACE}"
+release="${RELEASE}"
+rdir="${REMOTE_DIR}"
+overlay="${VALUES_OVERLAY}"
+wait_t="${WAIT_TIMEOUT}"
 
-mkdir -p /tmp/qb
-tar -xzf /tmp/qb-bundle.tgz -C /tmp/qb
+echo "[remote] kubectl: $(command -v kubectl || echo missing)"
+kubectl get nodes -o wide
 
-CHART=/tmp/qb/qb-chart.tgz
-V1=/tmp/qb/values-ci.yaml
-V2=/tmp/qb/values-overlay.yaml
-
-kubectl get ns \"\$NS\" >/dev/null 2>&1 || kubectl create ns \"\$NS\"
+kubectl get ns "$ns" >/dev/null 2>&1 || kubectl create ns "$ns"
 
 if ! command -v helm >/dev/null 2>&1; then
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  echo "[remote] helm not found, installing..."
+  tmpd="$(mktemp -d)"
+  curl -fsSL https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz | tar -xz -C "$tmpd"
+  sudo mv "$tmpd/linux-amd64/helm" /usr/local/bin/helm || mv "$tmpd/linux-amd64/helm" ~/helm && export PATH="$HOME:$PATH"
 fi
 
-h() {
-  helm upgrade --install \"\$RELEASE\" \"\$CHART\" -n \"\$NS\" --create-namespace \
-    -f \"\$V1\" -f \"\$V2\" \$1 --wait --timeout \"\$HELM_TIMEOUT\"
+rm -rf "$rdir"
+mkdir -p "$rdir"
+tar -xzf /tmp/qb-chart.tgz -C "$rdir"
+chart="$rdir/quotation-book"
+[ -f "$chart/Chart.yaml" ] || { echo "[remote] Chart.yaml not found"; ls -la "$rdir"; exit 1; }
+
+[ -f "$chart/$overlay" ] || { echo "[remote] overlay not found in chart: $overlay"; ls -la "$chart"; exit 1; }
+
+wait_pods() {
+  local selector="$1"
+  echo "[remote] waiting pods Ready: $selector (timeout=$wait_t)"
+  kubectl -n "$ns" wait --for=condition=Ready pod -l "$selector" --timeout="$wait_t" || {
+    echo "[remote] wait failed for selector: $selector" >&2
+    kubectl -n "$ns" get pods -o wide
+    exit 1
+  }
 }
 
-BASE='--set postgres.enabled=true --set redis.enabled=true --set rabbitmq.enabled=true'
-h \"\$BASE\"
+wait_job_complete() {
+  local job="$1"
+  echo "[remote] waiting job Complete: $job (timeout=$wait_t)"
+  kubectl -n "$ns" wait --for=condition=complete "job/$job" --timeout="$wait_t" || {
+    echo "[remote] job did not complete: $job" >&2
+    kubectl -n "$ns" get jobs -o wide
+    kubectl -n "$ns" describe "job/$job" || true
+    exit 1
+  }
+}
 
-h \"\$BASE --set postgresMigration.enabled=true\"
+helm_up() {
+  # Fast helm upgrade/install (no --wait). We wait explicitly with kubectl.
+  helm upgrade --install "$release" "$chart" \
+    -n "$ns" \
+    -f /tmp/values-ci.yaml \
+    -f "$chart/$overlay" \
+    --history-max 3 \
+    "$@"
+}
 
-BASE_MINIO=\"\$BASE --set minio.enabled=true\"
-h \"\$BASE_MINIO\"
+echo "[remote] Stage 1/4: infra (postgres/redis/rabbitmq/minio)"
+helm_up \
+  --set postgres.enabled=true \
+  --set redis.enabled=true \
+  --set rabbitmq.enabled=true \
+  --set minio.enabled=true \
+  --set postgresMigration.enabled=false \
+  --set minioMigration.enabled=false \
+  --set keycloak.enabled=false \
+  --set pgadmin.enabled=false \
+  --set backend.enabled=false \
+  --set frontend.enabled=false \
+  --set observability.dotnet.enabled=false \
+  --set observability.java.enabled=false \
+  --set observability.javascript.enabled=false
 
-h \"\$BASE_MINIO --set minioMigration.enabled=true\"
+wait_pods "app.kubernetes.io/instance=$release,app.kubernetes.io/name=postgres"
+wait_pods "app.kubernetes.io/instance=$release,app.kubernetes.io/name=redis"
+wait_pods "app.kubernetes.io/instance=$release,app.kubernetes.io/name=rabbitmq"
+wait_pods "app.kubernetes.io/instance=$release,app.kubernetes.io/name=minio"
 
-BASE_KC=\"\$BASE_MINIO --set keycloak.enabled=true\"
-h \"\$BASE_KC\"
+echo "[remote] Stage 2/4: migrations"
+helm_up \
+  --set postgres.enabled=true \
+  --set redis.enabled=true \
+  --set rabbitmq.enabled=true \
+  --set minio.enabled=true \
+  --set postgresMigration.enabled=true \
+  --set minioMigration.enabled=true \
+  --set keycloak.enabled=false \
+  --set pgadmin.enabled=false \
+  --set backend.enabled=false \
+  --set frontend.enabled=false
 
-BASE_BE=\"\$BASE_KC --set backend.enabled=true\"
-h \"\$BASE_BE\"
+wait_job_complete "quotation-book-postgres-migration"
+wait_job_complete "quotation-book-minio-migration"
 
-BASE_FE=\"\$BASE_BE --set frontend.enabled=true\"
-h \"\$BASE_FE\"
+echo "[remote] Stage 3/4: keycloak"
+helm_up \
+  --set keycloak.enabled=true \
+  --set backend.enabled=false \
+  --set frontend.enabled=false
+wait_pods "app.kubernetes.io/instance=$release,app.kubernetes.io/name=keycloak"
 
-h \"\$BASE_FE --set postgresMigration.enabled=false --set minioMigration.enabled=false\"
+echo "[remote] Stage 4/4: app (backend/frontend/pgadmin)"
+helm_up \
+  --set backend.enabled=true \
+  --set frontend.enabled=true \
+  --set pgadmin.enabled=true
 
-kubectl -n \"\$NS\" get pods,svc -o wide
-helm -n \"\$NS\" status \"\$RELEASE\"
-"
+wait_pods "app.kubernetes.io/instance=$release,app.kubernetes.io/name=backend"
+wait_pods "app.kubernetes.io/instance=$release,app.kubernetes.io/name=frontend"
+wait_pods "app.kubernetes.io/instance=$release,app.kubernetes.io/name=pgadmin"
+
+echo "[remote] OK"
+kubectl -n "$ns" get pods,svc -o wide
+REMOTE
+
+echo "Done. If NodePort is enabled: https://$(echo "$MINIKUBE_HOST"):30443" || true
