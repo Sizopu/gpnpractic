@@ -56,7 +56,6 @@ deploy_minikube_helm:
       fi
 
     - envsubst < "$VALUES_TPL" > /tmp/values-ci.yaml
-    - sed -i "s/\\\${TLS_SECRET_NAME:-quotation-book-tls}/$TLS_SECRET_NAME/g" /tmp/values-ci.yaml
 
     - |
       if [ -f "$VALUES_OVERLAY" ]; then
