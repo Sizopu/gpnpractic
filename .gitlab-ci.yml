@@ -11,10 +11,13 @@ deploy_minikube_helm:
     NAMESPACE: demo
     RELEASE: quotation-book
     REMOTE_DIR: /tmp/qb-chart
-    VALUES_OVERLAY: values-minikube.yaml
+    VALUES_OVERLAY: values-minikube.yaml   
 
   before_script:
-    - apk add --no-cache openssh-client bash gettext curl tar
+    - apk add --no-cache openssh-client bash gettext curl tar coreutils
+
+    - echo "== Repo root ==" && ls -la
+    - echo "== Templates ==" && ls -la templates || true
 
     - mkdir -p ~/.ssh
     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
@@ -24,12 +27,25 @@ deploy_minikube_helm:
     - cp "$QB_ENV_FILE" .env
     - set -a; . ./.env; set +a
 
-
     - export TLS_ENABLED="${TLS_ENABLED:-false}"
     - export TLS_CREATE="${TLS_CREATE:-false}"
 
-    - chmod +x ./render-values.sh
-    - ./render-values.sh ./values-from-env.tpl.yaml /tmp/values-ci.yaml
+    - |
+      if [ "$TLS_CREATE" = "true" ]; then
+        if [ -n "${TLS_CERTIFICATE_CRT_FILE:-}" ] && [ -f "$TLS_CERTIFICATE_CRT_FILE" ]; then
+          export TLS_CERTIFICATE_CRT_B64="$(cat "$TLS_CERTIFICATE_CRT_FILE" | base64 | tr -d '\n')"
+        fi
+        if [ -n "${TLS_PRIVATE_KEY_FILE:-}" ] && [ -f "$TLS_PRIVATE_KEY_FILE" ]; then
+          export TLS_PRIVATE_KEY_B64="$(cat "$TLS_PRIVATE_KEY_FILE" | base64 | tr -d '\n')"
+        fi
+        if [ -n "${TLS_CA_ROOT_CRT_FILE:-}" ] && [ -f "$TLS_CA_ROOT_CRT_FILE" ]; then
+          export TLS_CA_ROOT_CRT_B64="$(cat "$TLS_CA_ROOT_CRT_FILE" | base64 | tr -d '\n')"
+        fi
+      fi
+
+    - test -f ./values-from-env.tpl.yaml
+    - envsubst < ./values-from-env.tpl.yaml > /tmp/values-ci.yaml
+    - echo "== Rendered values (head) ==" && head -n 40 /tmp/values-ci.yaml
 
     - |
       tar -czf /tmp/qb-chart.tgz \
@@ -79,6 +95,6 @@ deploy_minikube_helm:
         echo \"== Result ==\"
         kubectl -n '"$NAMESPACE"' get pods,svc -o wide
 
-        echo \"== Frontend URL (NodePort) ==\"
+        echo \"== Frontend URL ==\"
         echo https://$(minikube ip):30443
       "'
