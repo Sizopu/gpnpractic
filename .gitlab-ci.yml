@@ -36,7 +36,6 @@ deploy_minikube_helm:
         CA_SRC="./docker/certs/sandbox_ca_root.crt"
 
         if [ ! -f "$CERT_SRC" ] || [ ! -f "$KEY_SRC" ]; then
-          echo "TLS_CREATE=true but certificate/key not found"
           find ./docker -maxdepth 6 -type f \( -name 'certificate.crt' -o -name 'private.key' -o -name 'sandbox_ca_root.crt' \) -print 2>/dev/null || true
           exit 1
         fi
@@ -57,6 +56,7 @@ deploy_minikube_helm:
       fi
 
     - envsubst < "$VALUES_TPL" > /tmp/values-ci.yaml
+    - sed -i "s/\\\${TLS_SECRET_NAME:-quotation-book-tls}/$TLS_SECRET_NAME/g" /tmp/values-ci.yaml
 
     - |
       if [ -f "$VALUES_OVERLAY" ]; then
@@ -110,7 +110,127 @@ deploy_minikube_helm:
           -f /tmp/values-ci.yaml \
           -f /tmp/values-overlay.yaml \
           --set namespace.create=false \
-          --set namespace.name='"$NAMESPACE"'
+          --set namespace.name='"$NAMESPACE"' \
+          --set tls.secretName='"$TLS_SECRET_NAME"'
+        kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-frontend --timeout=180s || true
+        kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-backend  --timeout=180s || true
+        kubectl -n '"$NAMESPACE"' get pods,svc -o wide
+        echo https://$(minikube ip):30443
+      "'
+stages:
+  - deploy
+
+deploy_minikube_helm:
+  stage: deploy
+  image: alpine:latest
+  tags:
+    - docker-runner
+
+  variables:
+    NAMESPACE: demo
+    RELEASE: quotation-book
+    REMOTE_DIR: /tmp/qb-chart
+    VALUES_OVERLAY: values-minikube.yaml
+    TLS_ENABLED: "true"
+    TLS_CREATE: "true"
+
+  before_script:
+    - apk add --no-cache openssh-client bash gettext curl tar coreutils
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+    - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
+
+    - cp "$QB_ENV_FILE" .env
+    - set -a; . ./.env; set +a
+
+    - export TLS_ENABLED="${TLS_ENABLED:-false}"
+    - export TLS_CREATE="${TLS_CREATE:-false}"
+    - export TLS_SECRET_NAME="$(echo "${TLS_SECRET_NAME:-quotation-book-tls}" | tr '[:upper:]' '[:lower:]')"
+
+    - |
+      if [ "$TLS_CREATE" = "true" ]; then
+        CERT_SRC="./docker/ssl/certs/certificate.crt"
+        KEY_SRC="./docker/ssl/certs/private.key"
+        CA_SRC="./docker/certs/sandbox_ca_root.crt"
+
+        if [ ! -f "$CERT_SRC" ] || [ ! -f "$KEY_SRC" ]; then
+          find ./docker -maxdepth 6 -type f \( -name 'certificate.crt' -o -name 'private.key' -o -name 'sandbox_ca_root.crt' \) -print 2>/dev/null || true
+          exit 1
+        fi
+
+        export TLS_CERTIFICATE_CRT_B64="$(cat "$CERT_SRC" | base64 | tr -d '\n')"
+        export TLS_PRIVATE_KEY_B64="$(cat "$KEY_SRC" | base64 | tr -d '\n')"
+        if [ -f "$CA_SRC" ]; then export TLS_CA_ROOT_CRT_B64="$(cat "$CA_SRC" | base64 | tr -d '\n')"; fi
+      fi
+
+    - |
+      if [ -f ./values-from-env.tpl.yaml ]; then
+        export VALUES_TPL=./values-from-env.tpl.yaml
+      elif [ -f ./ci/values-from-env.tpl.yaml ]; then
+        export VALUES_TPL=./ci/values-from-env.tpl.yaml
+      else
+        find . -maxdepth 3 -type f -name '*from-env*' -print || true
+        exit 1
+      fi
+
+    - envsubst < "$VALUES_TPL" > /tmp/values-ci.yaml
+    - sed -i "s/\\\${TLS_SECRET_NAME:-quotation-book-tls}/$TLS_SECRET_NAME/g" /tmp/values-ci.yaml
+
+    - |
+      if [ -f "$VALUES_OVERLAY" ]; then
+        cp "$VALUES_OVERLAY" /tmp/values-overlay.yaml
+      elif [ -f "./ci/$VALUES_OVERLAY" ]; then
+        cp "./ci/$VALUES_OVERLAY" /tmp/values-overlay.yaml
+      else
+        echo "overlay not found: $VALUES_OVERLAY"
+        ls -la values*.yaml 2>/dev/null || true
+        find . -maxdepth 2 -type f -name 'values-*.yaml' -print 2>/dev/null || true
+        exit 1
+      fi
+
+    - |
+      tar -czf /tmp/qb-chart.tgz \
+        Chart.yaml \
+        values.yaml \
+        values-prod.yaml \
+        templates \
+        docker \
+        ci || tar -czf /tmp/qb-chart.tgz \
+          Chart.yaml \
+          values.yaml \
+          values-prod.yaml \
+          templates \
+          docker
+
+  script:
+    - |
+      ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
+        set -e
+        kubectl get nodes -o wide
+        kubectl get ns '"$NAMESPACE"' >/dev/null 2>&1 || kubectl create ns '"$NAMESPACE"'
+        if ! command -v helm >/dev/null 2>&1; then
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        fi
+        rm -rf '"$REMOTE_DIR"'
+        mkdir -p '"$REMOTE_DIR"'
+      "'
+
+    - scp -i ~/.ssh/id_ed25519 /tmp/qb-chart.tgz "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-chart.tgz"
+    - scp -i ~/.ssh/id_ed25519 /tmp/values-ci.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/values-ci.yaml"
+    - scp -i ~/.ssh/id_ed25519 /tmp/values-overlay.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/values-overlay.yaml"
+
+    - |
+      ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
+        set -e
+        tar -xzf /tmp/qb-chart.tgz -C '"$REMOTE_DIR"'
+        helm upgrade --install '"$RELEASE"' '"$REMOTE_DIR"' \
+          -n '"$NAMESPACE"' \
+          -f /tmp/values-ci.yaml \
+          -f /tmp/values-overlay.yaml \
+          --set namespace.create=false \
+          --set namespace.name='"$NAMESPACE"' \
+          --set tls.secretName='"$TLS_SECRET_NAME"'
         kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-frontend --timeout=180s || true
         kubectl -n '"$NAMESPACE"' rollout status deploy/quotation-book-backend  --timeout=180s || true
         kubectl -n '"$NAMESPACE"' get pods,svc -o wide
