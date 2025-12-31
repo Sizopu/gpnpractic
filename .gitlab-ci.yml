@@ -12,6 +12,8 @@ deploy_minikube_helm:
     RELEASE: quotation-book
     REMOTE_DIR: /tmp/qb-chart
     VALUES_OVERLAY: values-minikube.yaml
+    TLS_ENABLED: "true"
+    TLS_CREATE: "true"
 
   before_script:
     - apk add --no-cache openssh-client bash gettext curl tar coreutils
@@ -19,22 +21,38 @@ deploy_minikube_helm:
     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "$MINIKUBE_HOST" >> ~/.ssh/known_hosts
+
     - cp "$QB_ENV_FILE" .env
     - set -a; . ./.env; set +a
+
     - export TLS_ENABLED="${TLS_ENABLED:-false}"
     - export TLS_CREATE="${TLS_CREATE:-false}"
+
     - |
       if [ "$TLS_CREATE" = "true" ]; then
-        if [ -n "${TLS_CERTIFICATE_CRT_FILE:-}" ] && [ -f "$TLS_CERTIFICATE_CRT_FILE" ]; then
-          export TLS_CERTIFICATE_CRT_B64="$(cat "$TLS_CERTIFICATE_CRT_FILE" | base64 | tr -d '\n')"
+        CERT_SRC=""
+        KEY_SRC=""
+        CA_SRC=""
+
+        if [ -f "./ci/ssl/certs/certificate.crt" ]; then CERT_SRC="./ci/ssl/certs/certificate.crt"; fi
+        if [ -f "./ci/ssl/certs/private.key" ]; then KEY_SRC="./ci/ssl/certs/private.key"; fi
+        if [ -f "./ci/certs/sandbox_ca_root.crt" ]; then CA_SRC="./ci/certs/sandbox_ca_root.crt"; fi
+
+        if [ -z "$CERT_SRC" ] && [ -f "./ci/local/ssl/certificate.crt" ]; then CERT_SRC="./ci/local/ssl/certificate.crt"; fi
+        if [ -z "$KEY_SRC" ]  && [ -f "./ci/local/ssl/private.key" ]; then KEY_SRC="./ci/local/ssl/private.key"; fi
+        if [ -z "$CA_SRC" ]   && [ -f "./ci/local/ssl/sandbox_ca_root.crt" ]; then CA_SRC="./ci/local/ssl/sandbox_ca_root.crt"; fi
+
+        if [ -z "$CERT_SRC" ] || [ -z "$KEY_SRC" ]; then
+          echo "TLS_CREATE=true but certificate/key not found"
+          find ./ci -maxdepth 4 -type f \( -name 'certificate.crt' -o -name 'private.key' -o -name 'sandbox_ca_root.crt' \) -print || true
+          exit 1
         fi
-        if [ -n "${TLS_PRIVATE_KEY_FILE:-}" ] && [ -f "$TLS_PRIVATE_KEY_FILE" ]; then
-          export TLS_PRIVATE_KEY_B64="$(cat "$TLS_PRIVATE_KEY_FILE" | base64 | tr -d '\n')"
-        fi
-        if [ -n "${TLS_CA_ROOT_CRT_FILE:-}" ] && [ -f "$TLS_CA_ROOT_CRT_FILE" ]; then
-          export TLS_CA_ROOT_CRT_B64="$(cat "$TLS_CA_ROOT_CRT_FILE" | base64 | tr -d '\n')"
-        fi
+
+        export TLS_CERTIFICATE_CRT_B64="$(cat "$CERT_SRC" | base64 | tr -d '\n')"
+        export TLS_PRIVATE_KEY_B64="$(cat "$KEY_SRC" | base64 | tr -d '\n')"
+        if [ -n "$CA_SRC" ]; then export TLS_CA_ROOT_CRT_B64="$(cat "$CA_SRC" | base64 | tr -d '\n')"; fi
       fi
+
     - |
       if [ -f ./values-from-env.tpl.yaml ]; then
         export VALUES_TPL=./values-from-env.tpl.yaml
@@ -44,7 +62,25 @@ deploy_minikube_helm:
         find . -maxdepth 3 -type f -name '*from-env*' -print || true
         exit 1
       fi
+
     - envsubst < "$VALUES_TPL" > /tmp/values-ci.yaml
+
+    - |
+      if [ -f "$VALUES_OVERLAY" ]; then
+        cp "$VALUES_OVERLAY" /tmp/values-overlay.yaml
+      elif [ -f "./ci/$VALUES_OVERLAY" ]; then
+        cp "./ci/$VALUES_OVERLAY" /tmp/values-overlay.yaml
+      else
+        CANDIDATE="$(ls -1 values-*.yaml 2>/dev/null | grep -v -E '^(values\.yaml|values-prod\.yaml)$' | head -n 1 || true)"
+        if [ -n "$CANDIDATE" ]; then
+          cp "$CANDIDATE" /tmp/values-overlay.yaml
+        else
+          echo "overlay not found: $VALUES_OVERLAY"
+          ls -la values*.yaml 2>/dev/null || true
+          exit 1
+        fi
+      fi
+
     - |
       tar -czf /tmp/qb-chart.tgz \
         Chart.yaml \
@@ -56,15 +92,6 @@ deploy_minikube_helm:
           values.yaml \
           values-prod.yaml \
           templates
-    - |
-      if [ -f "$VALUES_OVERLAY" ]; then
-        cp "$VALUES_OVERLAY" /tmp/values-overlay.yaml
-      elif [ -f "./ci/$VALUES_OVERLAY" ]; then
-        cp "./ci/$VALUES_OVERLAY" /tmp/values-overlay.yaml
-      else
-        echo "overlay not found: $VALUES_OVERLAY"
-        exit 1
-      fi
 
   script:
     - |
@@ -78,9 +105,11 @@ deploy_minikube_helm:
         rm -rf '"$REMOTE_DIR"'
         mkdir -p '"$REMOTE_DIR"'
       "'
+
     - scp -i ~/.ssh/id_ed25519 /tmp/qb-chart.tgz "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/qb-chart.tgz"
     - scp -i ~/.ssh/id_ed25519 /tmp/values-ci.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/values-ci.yaml"
     - scp -i ~/.ssh/id_ed25519 /tmp/values-overlay.yaml "$MINIKUBE_USER@$MINIKUBE_HOST:/tmp/values-overlay.yaml"
+
     - |
       ssh -i ~/.ssh/id_ed25519 "$MINIKUBE_USER@$MINIKUBE_HOST" 'bash -lc "
         set -e
