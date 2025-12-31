@@ -6,24 +6,6 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: keycloak
-    {{- include "qb.labels" . | nindent 4 }}
-spec:
-  type: {{ .Values.keycloak.service.https.type }}
-  selector:
-    app.kubernetes.io/name: keycloak
-    app.kubernetes.io/component: keycloak
-  ports:
-    - name: https
-      port: {{ .Values.keycloak.service.httpsPort }}
-      targetPort: https
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ .Values.keycloak.name }}-external
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    app.kubernetes.io/name: keycloak
     app.kubernetes.io/component: keycloak
     {{- include "qb.labels" . | nindent 4 }}
 spec:
@@ -49,7 +31,7 @@ metadata:
     app.kubernetes.io/component: keycloak
     {{- include "qb.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.keycloak.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: keycloak
@@ -68,7 +50,7 @@ spec:
       volumes:
         - name: qb-tls
           secret:
-            secretName: {{ .Values.tls.name }}
+            secretName: {{ default "quotation-book-tls" .Values.tls.secretName | lower }}
             items:
               - key: certificate.crt
                 path: certificate.crt
@@ -83,17 +65,14 @@ spec:
             - name: https
               containerPort: {{ .Values.keycloak.service.httpsPort }}
           env:
-            - name: KEYCLOAK_ADMIN
-              value: gpn-admin
-            - name: KEYCLOAK_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.secrets.name }}
-                  key: KEYCLOAK_ADMIN_PASSWORD
             - name: KC_DB
               value: postgres
-            - name: KC_DB_URL
-              value: {{ .Values.keycloak.env.dbUrl | quote }}
+            - name: KC_DB_URL_HOST
+              value: {{ .Values.postgres.name | quote }}
+            - name: KC_DB_URL_PORT
+              value: {{ .Values.postgres.service.port | quote }}
+            - name: KC_DB_URL_DATABASE
+              value: {{ .Values.postgres.env.keycloakDbName | quote }}
             - name: KC_DB_USERNAME
               value: {{ .Values.postgres.env.keycloakDbUser | quote }}
             - name: KC_DB_PASSWORD
@@ -101,54 +80,51 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: KC_DB_PASSWORD
-            - name: KC_HTTPS_CERTIFICATE_FILE
-              value: /usr/share/java/keycloak/conf/certificate.crt
-            - name: KC_HTTPS_CERTIFICATE_KEY_FILE
-              value: /usr/share/java/keycloak/conf/private.key
+            - name: KEYCLOAK_ADMIN
+              value: {{ .Values.keycloak.env.adminUser | quote }}
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: KEYCLOAK_ADMIN_PASSWORD
             - name: KC_HTTP_ENABLED
-              value: {{ ternary "true" "false" .Values.keycloak.env.httpEnabled | quote }}
-            - name: KC_HTTP_PORT
-              value: {{ .Values.keycloak.env.httpPort | quote }}
-            - name: KC_HTTPS_PORT
-              value: {{ .Values.keycloak.service.httpsPort | quote }}
-            - name: KC_PROXY
-              value: {{ .Values.keycloak.env.proxy | quote }}
-            - name: CLIENT_URL
-              value: {{ .Values.keycloak.env.clientUrl | quote }}
-            - name: KC_HOSTNAME
-              value: {{ .Values.keycloak.env.hostname | quote }}
+              value: "false"
+            - name: KC_HTTPS_CERTIFICATE_FILE
+              value: /etc/x509/https/certificate.crt
+            - name: KC_HTTPS_CERTIFICATE_KEY_FILE
+              value: /etc/x509/https/private.key
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
             - name: KC_HOSTNAME_STRICT
               value: "false"
             - name: KC_HOSTNAME_STRICT_HTTPS
               value: "false"
-
           {{- with .Values.keycloak.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           readinessProbe:
             httpGet:
-              scheme: HTTPS
-              path: /health/ready
+              path: /
               port: https
+              scheme: HTTPS
             initialDelaySeconds: 30
             periodSeconds: 10
-            timeoutSeconds: 10
-            failureThreshold: 40
+            timeoutSeconds: 5
+            failureThreshold: 30
           livenessProbe:
             httpGet:
-              scheme: HTTPS
-              path: /health/ready
+              path: /
               port: https
+              scheme: HTTPS
             initialDelaySeconds: 60
             periodSeconds: 20
-            timeoutSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 6
-
           {{- if .Values.tls.enabled }}
           volumeMounts:
             - name: qb-tls
-              mountPath: /usr/share/java/keycloak/conf
+              mountPath: /etc/x509/https
               readOnly: true
           {{- end }}
 {{- end }}

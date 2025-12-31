@@ -1,22 +1,4 @@
 {{- if .Values.backend.enabled }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ .Values.backend.name }}
-  namespace: {{ .Values.global.namespace }}
-  labels:
-    app.kubernetes.io/name: backend
-    {{- include "qb.labels" . | nindent 4 }}
-spec:
-  type: {{ .Values.backend.service.type }}
-  selector:
-    app.kubernetes.io/name: backend
-    app.kubernetes.io/component: backend
-  ports:
-    - name: https
-      port: {{ .Values.backend.service.port }}
-      targetPort: https
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,7 +9,7 @@ metadata:
     app.kubernetes.io/component: backend
     {{- include "qb.labels" . | nindent 4 }}
 spec:
-  replicas: {{ ternary .Values.backend.autoscaling.minReplicas .Values.backend.replicaCount .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
   selector:
     matchLabels:
       app.kubernetes.io/name: backend
@@ -42,10 +24,11 @@ spec:
       {{- include "qb.imagePullSecrets" . | nindent 6 }}
       initContainers:
         {{- include "qb.waitFor" (dict "name" "wait-postgres" "host" .Values.postgres.name "port" .Values.postgres.service.port "timeout" 240) | nindent 8 }}
-        {{- include "qb.waitFor" (dict "name" "wait-redis" "host" .Values.redis.name "port" .Values.redis.service.port "timeout" 240) | nindent 8 }}
+        {{- include "qb.waitFor" (dict "name" "wait-redis"    "host" .Values.redis.name    "port" .Values.redis.service.port    "timeout" 240) | nindent 8 }}
         {{- include "qb.waitFor" (dict "name" "wait-rabbitmq" "host" .Values.rabbitmq.name "port" .Values.rabbitmq.service.port "timeout" 240) | nindent 8 }}
-        {{- include "qb.waitFor" (dict "name" "wait-minio" "host" .Values.minio.name "port" .Values.minio.service.apiPort "timeout" 240) | nindent 8 }}
-        {{- include "qb.waitFor" (dict "name" "wait-keycloak" "host" .Values.keycloak.name "port" .Values.keycloak.service.httpsPort "timeout" 300) | nindent 8 }}
+        {{- include "qb.waitFor" (dict "name" "wait-minio"    "host" .Values.minio.name    "port" .Values.minio.service.apiPort "timeout" 240) | nindent 8 }}
+        {{- include "qb.waitFor" (dict "name" "wait-keycloak" "host" .Values.keycloak.name "port" .Values.keycloak.service.httpsPort "timeout" 360) | nindent 8 }}
+
       containers:
         - name: backend
           image: {{ include "qb.image" (dict "image" .Values.backend.image "global" .Values.global) }}
@@ -54,114 +37,84 @@ spec:
             - name: https
               containerPort: {{ .Values.backend.service.port }}
           env:
-            - name: BACKEND_HOST
-              value: {{ .Values.backend.name | quote }}
-            - name: BACKEND_PORT
-              value: {{ .Values.backend.service.port | quote }}
-            - name: BACKEND_TLS
-              value: {{ ternary "true" "false" .Values.backend.tls.enabled | quote }}
-            - name: BACKEND_SSL_CERT
-              value: /opt/app-root/etc/certificate.crt
-            - name: BACKEND_SSL_KEY
-              value: /opt/app-root/etc/private.key
-
-            - name: DB_HOST
+            - name: POSTGRES_HOST
               value: {{ .Values.postgres.name | quote }}
-            - name: DB_PORT
+            - name: POSTGRES_PORT
               value: {{ .Values.postgres.service.port | quote }}
-            - name: DB_NAME
+            - name: POSTGRES_DB_NAME
               value: {{ .Values.postgres.env.dbName | quote }}
-            - name: DB_USER
+            - name: POSTGRES_DB_USER
               value: {{ .Values.postgres.env.dbUser | quote }}
-            - name: DB_PASSWORD
+            - name: POSTGRES_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: POSTGRES_DB_PASSWORD
 
-            - name: POSTGRES_SSL
-              value: {{ ternary "true" "false" .Values.backend.env.postgresSsl | quote }}
-            - name: CA_CERTIFICATE
-              value: {{ .Values.backend.env.caCertPath | quote }}
-
             - name: REDIS_HOST
               value: {{ .Values.redis.name | quote }}
             - name: REDIS_PORT
-              value: {{ ternary (toString .Values.redis.service.tlsPort) (toString .Values.redis.service.port) .Values.backend.env.redisSsl | quote }}
+              value: {{ .Values.redis.service.port | quote }}
             - name: REDIS_PASS
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: REDIS_PASS
-            - name: REDIS_SSL
-              value: {{ ternary "true" "false" .Values.backend.env.redisSsl | quote }}
 
             - name: RABBITMQ_HOST
               value: {{ .Values.rabbitmq.name | quote }}
-            - name: RABBITMQ_PORT
+            - name: RABBITMQ_AMQP_PORT
               value: {{ .Values.rabbitmq.service.port | quote }}
-            - name: RABBITMQ_USER
-              value: gpn-admin
-            - name: RABBITMQ_PASSWORD
+            - name: RABBITMQ_SENDER_USERNAME
+              value: {{ .Values.rabbitmq.env.senderUser | quote }}
+            - name: RABBITMQ_SENDER_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
-                  key: RABBITMQ_ADM_PASSWORD
-            - name: RABBITMQ_VHOST
-              value: {{ .Values.rabbitmq.env.vhost | quote }}
+                  key: RABBITMQ_SENDER_PASSWORD
+            - name: RABBITMQ_RECIPIENT_USERNAME
+              value: {{ .Values.rabbitmq.env.recipientUser | quote }}
+            - name: RABBITMQ_RECIPIENT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.name }}
+                  key: RABBITMQ_RECIPIENT_PASSWORD
 
-            - name: MINIO_URL
-              value: {{ printf "%s://%s" .Values.minio.env.scheme .Values.minio.name | quote }}
+            - name: MINIO_HOST
+              value: {{ .Values.minio.name | quote }}
             - name: MINIO_PORT
               value: {{ .Values.minio.service.apiPort | quote }}
-            - name: MINIO_ACCESS_KEY
+            - name: MINIO_ROOT_USER
               value: gpn-admin
-            - name: MINIO_SECRET_KEY
+            - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: MINIO_ROOT_PASSWORD
-            - name: MINIO_BUCKET_NAME
-              value: {{ .Values.minio.env.bucketName | quote }}
-            - name: MINIO_SSL_VERIFY
-              value: {{ ternary "true" "false" .Values.backend.env.minioSslVerify | quote }}
+            - name: MINIO_BUCKET
+              value: {{ .Values.minio.env.bucket | quote }}
+            - name: MINIO_SCHEME
+              value: {{ .Values.minio.env.scheme | quote }}
 
             - name: KEYCLOAK_HOST
               value: {{ .Values.keycloak.name | quote }}
             - name: KEYCLOAK_PORT
               value: {{ .Values.keycloak.service.httpsPort | quote }}
-            - name: KEYCLOAK_EXTERNAL_HOST
-              value: {{ .Values.backend.env.keycloakExternalHost | quote }}
-            - name: KEYCLOAK_EXTERNAL_PORT
-              value: {{ .Values.backend.env.keycloakExternalPort | quote }}
+            - name: KEYCLOAK_REALM
+              value: {{ .Values.keycloak.env.realm | quote }}
             - name: KEYCLOAK_CLIENT_ID
-              value: {{ .Values.backend.env.keycloakClientId | quote }}
+              value: {{ .Values.keycloak.env.clientId | quote }}
             - name: KEYCLOAK_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: KEYCLOAK_CLIENT_SECRET
-            - name: KEYCLOAK_REALM
-              value: {{ .Values.backend.env.keycloakRealm | quote }}
-            - name: KEYCLOAK_REDIRECT_URI
-              value: {{ .Values.backend.env.keycloakRedirectUri | quote }}
 
             - name: FLASK_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: FLASK_SECRET_KEY
-
-            - name: SESSION_COOKIE_SECURE
-              value: {{ ternary "True" "False" .Values.backend.env.sessionCookieSecure | quote }}
-            - name: SESSION_COOKIE_HTTPONLY
-              value: {{ ternary "True" "False" .Values.backend.env.sessionCookieHttpOnly | quote }}
-            - name: SESSION_COOKIE_SAMESITE
-              value: {{ .Values.backend.env.sessionCookieSameSite | quote }}
-            - name: USERINFO_CACHE_TTL
-              value: {{ .Values.backend.env.userinfoCacheTtl | quote }}
-            - name: POSTGRES_CACHE_TTL
-              value: {{ .Values.backend.env.postgresCacheTtl | quote }}
 
           {{- with .Values.backend.resources }}
           resources:
@@ -173,10 +126,11 @@ spec:
               path: /health
               port: https
               scheme: {{ ternary "HTTPS" "HTTP" .Values.backend.tls.enabled }}
-            initialDelaySeconds: 20
+            initialDelaySeconds: 15
             periodSeconds: 10
-            timeoutSeconds: 10
-            failureThreshold: 40
+            timeoutSeconds: 5
+            failureThreshold: 30
+
           livenessProbe:
             httpGet:
               path: /health
@@ -201,7 +155,7 @@ spec:
       volumes:
         - name: qb-tls
           secret:
-            secretName: {{ .Values.tls.name }}
+            secretName: {{ default "quotation-book-tls" .Values.tls.secretName | lower }}
             items:
               - key: certificate.crt
                 path: certificate.crt
@@ -209,7 +163,7 @@ spec:
                 path: private.key
         - name: qb-ca
           secret:
-            secretName: {{ .Values.tls.name }}
+            secretName: {{ default "quotation-book-tls" .Values.tls.secretName | lower }}
             items:
               - key: sandbox_ca_root.crt
                 path: sandbox_ca_root.crt

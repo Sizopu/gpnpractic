@@ -6,6 +6,7 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: postgres
     {{- include "qb.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.postgres.service.type }}
@@ -13,12 +14,12 @@ spec:
     app.kubernetes.io/name: postgres
     app.kubernetes.io/component: postgres
   ports:
-    - name: postgres
+    - name: pg
       port: {{ .Values.postgres.service.port }}
-      targetPort: postgres
-{{- if eq .Values.postgres.service.type "NodePort" }}
+      targetPort: pg
+      {{- if eq .Values.postgres.service.type "NodePort" }}
       nodePort: {{ .Values.postgres.service.nodePort }}
-{{- end }}
+      {{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -50,25 +51,21 @@ spec:
       volumes:
         - name: qb-tls
           secret:
-            secretName: {{ .Values.tls.name }}
+            secretName: {{ default "quotation-book-tls" .Values.tls.secretName | lower }}
             items:
               - key: certificate.crt
                 path: certificate.crt
               - key: private.key
                 path: private.key
-              - key: sandbox_ca_root.crt
-                path: sandbox_ca_root.crt
       {{- end }}
       containers:
         - name: postgres
           image: {{ include "qb.image" (dict "image" .Values.postgres.image "global" .Values.global) }}
           imagePullPolicy: {{ include "qb.pullPolicy" (dict "image" .Values.postgres.image "global" .Values.global) }}
           ports:
-            - name: postgres
+            - name: pg
               containerPort: {{ .Values.postgres.service.port }}
           env:
-            - name: PGDATA
-              value: {{ .Values.postgres.env.pgdata | quote }}
             - name: POSTGRES_DB
               value: {{ .Values.postgres.env.dbName | quote }}
             - name: POSTGRES_USER
@@ -78,57 +75,26 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: POSTGRES_DB_PASSWORD
-            - name: POSTGRES_DB_HOST
-              value: {{ .Values.postgres.name | quote }}
-            - name: POSTGRES_DB_NAME
-              value: {{ .Values.postgres.env.dbName | quote }}
-            - name: POSTGRES_DB_USER
-              value: {{ .Values.postgres.env.dbUser | quote }}
-            - name: POSTGRES_DB_PASSWORD
+            - name: POSTGRES_SUPERUSER_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
-                  key: POSTGRES_DB_PASSWORD
-            - name: KEYCLOAK_DB_NAME
-              value: {{ .Values.postgres.env.keycloakDbName | quote }}
-            - name: KEYCLOAK_DB_USER
-              value: {{ .Values.postgres.env.keycloakDbUser | quote }}
-            - name: KEYCLOAK_DB_PASSWORD
+                  key: POSTGRES_SUPERUSER_PASSWORD
+            - name: KC_DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.name }}
                   key: KC_DB_PASSWORD
-            - name: POSTGRES_CERT_FILE
-              value: /opt/postgres/certs/certificate.crt
-            - name: POSTGRES_KEY_FILE
-              value: /opt/postgres/certs/private.key
-            - name: POSTGRES_CA_CERT
-              value: {{ .Values.postgres.env.caCertPath | quote }}
-
           {{- with .Values.postgres.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          readinessProbe:
-            exec:
-              command: ["sh","-c","pg_isready -h 127.0.0.1 -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.env.dbUser }} -d {{ .Values.postgres.env.dbName }}"]
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 30
-          livenessProbe:
-            exec:
-              command: ["sh","-c","pg_isready -h 127.0.0.1 -p {{ .Values.postgres.service.port }} -U {{ .Values.postgres.env.dbUser }} -d {{ .Values.postgres.env.dbName }}"]
-            initialDelaySeconds: 30
-            periodSeconds: 20
-            timeoutSeconds: 5
-            failureThreshold: 6
           volumeMounts:
             - name: data
-              mountPath: {{ .Values.postgres.env.pgdata | quote }}
+              mountPath: /bitnami/postgresql
             {{- if .Values.tls.enabled }}
             - name: qb-tls
-              mountPath: /opt/postgres/certs
+              mountPath: /opt/bitnami/postgresql/certs
               readOnly: true
             {{- end }}
   {{- if .Values.postgres.persistence.enabled }}

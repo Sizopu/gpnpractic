@@ -72,7 +72,7 @@ spec:
       volumes:
         - name: qb-tls
           secret:
-            secretName: {{ .Values.tls.name }}
+            secretName: {{ default "quotation-book-tls" .Values.tls.secretName | lower }}
             items:
               - key: certificate.crt
                 path: certificate.crt

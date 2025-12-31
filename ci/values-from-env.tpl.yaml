@@ -1,8 +1,6 @@
-
-
 global:
-  namespace: ${K8S_NAMESPACE:-demo}
-  defaultRegistry: ${DOCKER_REGISTRY:-quay.io}
+  namespace: ${K8S_NAMESPACE}
+  defaultRegistry: ${DOCKER_REGISTRY}
 
 secrets:
   create: true
@@ -29,7 +27,6 @@ tls:
   enabled: ${TLS_ENABLED}
   create: ${TLS_CREATE}
   secretName: ${TLS_SECRET_NAME}
-  name: ${TLS_SECRET_NAME:-quotation-book-tls}
   certificateCrtB64: "${TLS_CERTIFICATE_CRT_B64}"
   privateKeyB64: "${TLS_PRIVATE_KEY_B64}"
   caRootCrtB64: "${TLS_CA_ROOT_CRT_B64}"
